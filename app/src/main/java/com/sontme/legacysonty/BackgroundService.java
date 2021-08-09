@@ -386,11 +386,12 @@ public class BackgroundService extends Service {
         //nearby.startAdvertising();
         //nearby.startDiscovering();
         try {
-            String unenrypted = "teszt szöveg!";
+            String unenrypted = "test";
             SecretKey secret = SontHelper.Encrypt.generateKey();
             byte[] encrypted = SontHelper.Encrypt.encryptMsg(unenrypted, secret);
             String s = new String(encrypted);
-            Log.d("RSA_", "Encrypted: " + s);
+            Log.d("AES_", "Encrypted: " + s);
+            Log.d("AES_", "Decrypted: " + SontHelper.Encrypt.decryptMsg(encrypted, secret));
         } catch (Exception e) {
             e.printStackTrace();
         }

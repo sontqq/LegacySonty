@@ -67,16 +67,20 @@ import java.util.Map;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
     public static class Encrypt {
         public static SecretKey generateKey()
                 throws NoSuchAlgorithmException, InvalidKeySpecException {
-            return new SecretKeySpec("sontika".getBytes(), "AES");
+            // 16 or 24 or 32 // 128 192 256
+            KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+            keyGenerator.init(128);
+            return keyGenerator.generateKey();
+            //return new SecretKeySpec("123456789qwertzu".getBytes(), "AES");
         }
 
         public static byte[] encryptMsg(String message, SecretKey secret)
