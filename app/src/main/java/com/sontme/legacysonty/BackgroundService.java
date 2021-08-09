@@ -388,8 +388,12 @@ public class BackgroundService extends Service {
         try {
             String unenrypted = "test";
             SecretKey secret = SontHelper.Encrypt.generateKey();
+            Log.d("AES_", "SECURE ALG=" + secret.getAlgorithm());
+            Log.d("AES_", "SECURE FRM=" + secret.getFormat());
+            String e = new String(secret.getEncoded(), StandardCharsets.UTF_8);
+            Log.d("AES_", "SECURE STR=" + e);
             byte[] encrypted = SontHelper.Encrypt.encryptMsg(unenrypted, secret);
-            String s = new String(encrypted);
+            String s = new String(encrypted, StandardCharsets.UTF_8);
             Log.d("AES_", "Encrypted: " + s);
             Log.d("AES_", "Decrypted: " + SontHelper.Encrypt.decryptMsg(encrypted, secret));
         } catch (Exception e) {

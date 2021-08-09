@@ -70,6 +70,7 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
@@ -78,9 +79,9 @@ public class SontHelper {
                 throws NoSuchAlgorithmException, InvalidKeySpecException {
             // 16 or 24 or 32 // 128 192 256
             KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-            keyGenerator.init(128);
+            keyGenerator.init(256);
             return keyGenerator.generateKey();
-            //return new SecretKeySpec("123456789qwertzu".getBytes(), "AES");
+            //return new SecretKeySpec("123456789qwertzuqqqqqqqqqqqqqqqq".getBytes(), "AES");
         }
 
         public static byte[] encryptMsg(String message, SecretKey secret)
