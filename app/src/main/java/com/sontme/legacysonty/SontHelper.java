@@ -63,6 +63,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -74,6 +76,19 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
+
+    public static List<String> extractUrls(String text) {
+        List<String> containedUrls = new ArrayList<String>();
+        String urlRegex = "((https?|ftp|gopher|telnet|file):((//)|(\\\\))+[\\w\\d:#@%/;$()~_?\\+-=\\\\\\.&]*)";
+        Pattern pattern = Pattern.compile(urlRegex, Pattern.CASE_INSENSITIVE);
+        Matcher urlMatcher = pattern.matcher(text);
+        while (urlMatcher.find()) {
+            containedUrls.add(text.substring(urlMatcher.start(0),
+                    urlMatcher.end(0)));
+        }
+        return containedUrls;
+    }
+
     public static class Encrypt {
         public static SecretKey generateKey()
                 throws NoSuchAlgorithmException, InvalidKeySpecException {

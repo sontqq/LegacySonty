@@ -110,7 +110,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                         seekval.setText("Executor Pool Core Size: " + 1);
                         seekBar.setProgress(1);
                     } else if (progress >= 1) {
-                        BackgroundService.executor.setCorePoolSize(progress);
+                        BackgroundService.webRequestExecutor.setCorePoolSize(progress);
                         seekval.setText("Executor Pool Core Size: " + progress);
                     }
                 }
@@ -156,12 +156,12 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                         Intent i = new Intent(MainActivity.this, BackgroundService.class);
                         startService(i);
 
-                        int executorServiceQueueSize = BackgroundService.executor.getQueue().size();
-                        int executorServiceActiveCount = BackgroundService.executor.getActiveCount();
+                        int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
+                        int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
                         String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
                                 "Executor Pool Queue: " + executorServiceQueueSize + "\n" +
                                 "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
-                                "Elapsed: " + BackgroundService.time.getElapsed() + "\n" +
+                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n" +
                                 "Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length());
                         txt.setText(threadString);
                         String stats = "";
@@ -223,7 +223,8 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                             lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
                         }
 
-                        if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME) < (10000)) {
+                        if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
+                                < (10000)) {
                             txt4.setText("STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
                         } else {
                             txt4.setText("LOST GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);

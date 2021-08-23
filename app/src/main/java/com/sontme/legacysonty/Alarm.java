@@ -14,14 +14,14 @@ import java.util.Set;
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
-        Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
-        for (Iterator<String> it = set.iterator(); it.hasNext(); ) {
-            int id = Integer.parseInt(it.next());
-            BackgroundService.SimpleAlarmManager.initWithId(context, id).start();
-        }
-        int code = intent2.getIntExtra("requestCode", 1);
-        if (code == 66)
-            BackgroundService.vibrate(context);
+        //Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
+        //for (Iterator<String> it = set.iterator(); it.hasNext(); ) {
+        //int id = Integer.parseInt(it.next());
+        //BackgroundService.SimpleAlarmManager.initWithId(context, id).start();
+        //}
+        //int code = intent2.getIntExtra("requestCode", 1);
+        //if (code == 66)
+        //  BackgroundService.vibrate(context);
         Intent serviceIntent = new Intent(context, BackgroundService.class);
         context.startService(serviceIntent);
 

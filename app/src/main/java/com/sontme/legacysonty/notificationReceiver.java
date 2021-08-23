@@ -16,7 +16,7 @@ public class notificationReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
+        /*Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
         for (Iterator<String> it = set.iterator(); it.hasNext(); ) {
             int id = Integer.parseInt(it.next());
             BackgroundService.SimpleAlarmManager.initWithId(context, id).start();
@@ -24,7 +24,7 @@ public class notificationReceiver extends BroadcastReceiver {
         if (intent.getAction() == Intent.ACTION_BOOT_COMPLETED || intent.getAction() == Intent.ACTION_REBOOT || intent.getAction() == "android.intent.action.QUICKBOOT_POWERON") {
             Intent i = new Intent(context, BackgroundService.class);
             context.startService(i);
-        }
+        }*/
         int requestCode = intent.getExtras().getInt("requestCode");
         if (intent.getAction() == "exit" || requestCode == 99) {
             try {

@@ -14,7 +14,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Address;
@@ -22,11 +21,8 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
@@ -49,9 +45,6 @@ import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
 import com.google.common.io.Files;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -67,13 +60,13 @@ import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
@@ -81,20 +74,21 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import javax.crypto.SecretKey;
-
 public class BackgroundService extends Service {
 
     public static WifiManager wifiManager;
-    public static List<ScanResult> scanresult;
-    public static ThreadPoolExecutor executor;
+    //public static List<ScanResult> scanresult;
+    public static ThreadPoolExecutor webRequestExecutor;
     public static Location CURRENT_LOCATION;
     public static int LOCATON_CHANGE_COUNTER;
     public static long CURRENT_LOCATION_LASTTIME;
-    public static int count;
-    public static TimeElapsedUtil time;
+    public static int allCount;
+    public static TimeElapsedUtil startedAtTime;
 
-    static Context c;
+    Map<String, Integer> uni_wifi = new LinkedHashMap<>();
+    Map<String, Integer> uni_blue = new LinkedHashMap<>();
+
+    static Context context;
 
     public static ArrayList<BluetoothDeviceWithLocation> bluetoothDevicesFound;
 
@@ -109,11 +103,39 @@ public class BackgroundService extends Service {
     String PROVIDER = LocationManager.GPS_PROVIDER;
     public static int TIME = 0;
     public static int DISTANCE = 0;
+
+    public boolean decideW(List<ScanResult> wifi_scanresult) {
+        List<ScanResult> finalScanResult = new ArrayList<>();
+        finalScanResult.addAll(wifi_scanresult);
+        boolean result = false;
+        for (ScanResult sr : finalScanResult) {
+            try {
+                if (uni_wifi.get(sr.SSID + "_" + sr.BSSID) < sr.level) {
+                    Log.d("UNI_W", "stronger: " + sr.SSID + " -> " + sr.BSSID + " | from (" + uni_wifi.get(sr.SSID + "_" + sr.BSSID) + ") to (" + sr.level + ")");
+                    uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
+                    result = true;
+                } else {
+                    result = false;
+                }
+            } catch (Exception ee) {
+                Log.d("UNI_W", "fresh ap: " + sr.SSID + " -> " + sr.BSSID + " | (" + sr.level + ")");
+                uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
+                result = true;
+            }
+        }
+        return result;
+    }
+
     BroadcastReceiver wifiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             try {
-                scanresult = wifiManager.getScanResults();
+                /*
+                if (uni_wifi.size() > 0)
+                    Log.d("UNI_W", "wifi_size -> " + uni_wifi.size());
+                if (uni_blue.size() > 0)
+                    Log.d("UNI_B", "blue_size -> " + uni_blue.size());
+                */
                 wifiManager.startScan();
             } catch (Exception e) {
                 e.printStackTrace();
@@ -125,27 +147,26 @@ public class BackgroundService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        sendMessage_Telegram("LegacyService started");
         bluetoothDevicesFound = new ArrayList<>();
-        c = getApplicationContext();
+        context = getApplicationContext();
         cnt_notrecorded = 0;
         cnt_new = 0;
         cnt_updated_time = 0;
         cnt_updated_str = 0;
-        count = 0;
-
-        //createNotifGroup(getApplicationContext(), "legacysonty", "legacysonty");
-        //createNotificationChannel(getApplicationContext(),"legacysonty")
+        allCount = 0;
 
         showOngoing("Waiting..");
-        time = new TimeElapsedUtil();
+        startedAtTime = new TimeElapsedUtil();
 
-        executor = new ThreadPoolExecutor(1, Integer.MAX_VALUE,
+        webRequestExecutor = new ThreadPoolExecutor(1, Integer.MAX_VALUE,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
         try {
             registerReceiver(wifiReceiver, new IntentFilter(
                     WifiManager.SCAN_RESULTS_AVAILABLE_ACTION
             ));
         } catch (Exception e) {
+            Log.d("IntentReceiver_ERROR", e.getMessage());
             e.printStackTrace();
         }
         wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
@@ -158,99 +179,136 @@ public class BackgroundService extends Service {
                 CURRENT_LOCATION = location;
                 LOCATON_CHANGE_COUNTER++;
                 CURRENT_LOCATION_LASTTIME = SystemClock.elapsedRealtime();
-
+                Log.d("uni_w", "count: " + uni_wifi.size());
                 try {
+                    List<ScanResult> sr = new ArrayList<>();
+                    sr.addAll(wifiManager.getScanResults());
                     for (final ScanResult result : wifiManager.getScanResults()) {
                         final String enc = convertEncryption(result);
-                        if ((result.BSSID != null) && (result.BSSID.length() >= 1)) {
-                            final String reqBody =
-                                    "?id=0&ssid=" + result.SSID +
-                                            "&add=" + locationToStringAddress(getApplicationContext(),
-                                            location) +
-                                            "&bssid=" + result.BSSID +
-                                            "&source=" + "legacy_sonty" +
-                                            "&enc=" + enc +
-                                            "&rssi=" + convertDBM(result.level) +
-                                            "&long=" + location.getLongitude() +
-                                            "&lat=" + location.getLatitude() +
-                                            "&channel=" + result.frequency;
-                            Runnable runnable = new Runnable() {
-                                @Override
-                                public void run() {
-                                    RequestTaskListener rtl = new RequestTaskListener() {
-                                        @Override
-                                        public void update(String string) {
-                                            if (string != null) {
-                                                try {
-                                                    Log.d("HTTP_STAT_", "response: " + string);
-                                                    if (string.contains("not_recorded")) {
-                                                        cnt_notrecorded++;
-                                                        //vibrate(getApplicationContext());
-                                                    }
-                                                    if (string.contains("new")) {
-                                                        cnt_new++;
-                                                        vibrate(getApplicationContext());
-                                                    }
-                                                    if (string.contains("regi_old")) {
-                                                        cnt_updated_time++;
-                                                        //vibrate(getApplicationContext());
-                                                    }
-                                                    if (string.contains("regi_str")) {
-                                                        cnt_updated_str++;
-                                                        //vibrate(getApplicationContext());
-                                                    }
-                                                    String stats = "Not: " + cnt_notrecorded + " " +
-                                                            "Error: " + Live_Http_GET_SingleRecord.error_counter + " " +
-                                                            "New: " + cnt_new + " " +
-                                                            "Time: " + cnt_updated_time + " " +
-                                                            "Str: " + cnt_updated_str + " ";
-                                                    String text = "" + System.currentTimeMillis() + " -> " + count +
-                                                            " R: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) +
-                                                            " S: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent) + "\n" +
-                                                            "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
-                                                            "Spd: " + round(CURRENT_LOCATION.getSpeed() * 3.6, 1) + " km/h @ " +
-                                                            "Acc: " + CURRENT_LOCATION.getAccuracy() + " Src: " + CURRENT_LOCATION.getProvider() + "\n" +
-                                                            "Queue: " + executor.getActiveCount() + " / " + executor.getQueue().size() +
-                                                            "\n" + stats;
-                                                    count++;
-                                                    updateCurrent("LegacySonty", text);
-                                                    String lastHandledSSID = getStringbetweenStrings(string, "_SSID_", "_SSIDEND_");
-                                                    String updatedReason = getStringbetweenStrings(string, "_REASON_", "_ENDREASON_");
-                                                    String macAddress = getStringbetweenStrings(string, "_MACBEGIN_", "_ENDMAC_");
-                                                    //sendMessage_BetaBot(string);
 
-                                                    if (!updatedReason.contains("NOT")) {
-                                                        if (!updatedReason.contains("STR") &&
-                                                                !updatedReason.contains("NEW") &&
-                                                                !updatedReason.contains("OLD") &&
-                                                                !string.contains("not_recorded") &&
-                                                                !string.contains("regi_str") &&
-                                                                !string.contains("new") && // ||
-                                                                !string.contains("regi_old")) {
-                                                            updateCurrent_error(getApplicationContext(), "UNKNOWN ANSWER", "SSID: " + lastHandledSSID + "\nMAC: " + macAddress);
+                        boolean isnew = decideW(sr);
+                        if (isnew == true) {
+                            if ((result.BSSID != null) && (result.BSSID.length() >= 1)) {
+                                final String reqBody =
+                                        "?id=0&ssid=" + result.SSID +
+                                                "&add=" + locationToStringAddress(getApplicationContext(),
+                                                location) +
+                                                "&bssid=" + result.BSSID +
+                                                "&source=" + "legacy_sonty" +
+                                                "&enc=" + enc +
+                                                "&rssi=" + convertDBM(result.level) +
+                                                "&long=" + location.getLongitude() +
+                                                "&lat=" + location.getLatitude() +
+                                                "&channel=" + result.frequency;
+                                Runnable runnable = new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        RequestTaskListener rtl = new RequestTaskListener() {
+                                            @Override
+                                            public void update(String string) {
+                                                if (string != null) {
+                                                    try {
+                                                        //Log.d("HTTP_STAT_", "response: " + string);
+                                                        if (string.contains("not_recorded")) {
+                                                            cnt_notrecorded++;
+                                                            //vibrate(getApplicationContext());
                                                         }
+                                                        if (string.contains("new")) {
+                                                            cnt_new++;
+                                                            vibrate(getApplicationContext());
+                                                        }
+                                                        if (string.contains("regi_old")) {
+                                                            cnt_updated_time++;
+                                                            //vibrate(getApplicationContext());
+                                                        }
+                                                        if (string.contains("regi_str")) {
+                                                            cnt_updated_str++;
+                                                            //vibrate(getApplicationContext());
+                                                        }
+                                                        if (string.contains("NOT_VALID_REQUEST")) {
+
+                                                        }
+                                                        String stats = "Not: " + cnt_notrecorded + " " +
+                                                                "Error: " + Live_Http_GET_SingleRecord.error_counter + " " +
+                                                                "New: " + cnt_new + " " +
+                                                                "Time: " + cnt_updated_time + " " +
+                                                                "Str: " + cnt_updated_str + " ";
+                                                        String text = "" + System.currentTimeMillis() + " -> " + allCount +
+                                                                " R: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) +
+                                                                " S: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent) + "\n" +
+                                                                "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
+                                                                "Spd: " + round(CURRENT_LOCATION.getSpeed() * 3.6, 1) + " km/h @ " +
+                                                                "Acc: " + CURRENT_LOCATION.getAccuracy() + " Src: " + CURRENT_LOCATION.getProvider() + "\n" +
+                                                                "Queue: " + webRequestExecutor.getActiveCount() + " / " + webRequestExecutor.getQueue().size() +
+                                                                "\n" + stats;
+                                                        allCount++;
+                                                        updateCurrent("LegacySonty", text);
+                                                        String detailedStatus = getStringbetweenStrings(string, "_BEGIN_DETAILED_STATUS_", "_END_DETAILED_STATUS_");
+                                                        if (detailedStatus.length() > 0) {
+                                                            String lastHandledSSID = getStringbetweenStrings(detailedStatus, "_SSID_", "_SSIDEND_");
+                                                            String updatedReason = getStringbetweenStrings(detailedStatus, "_REASON_", "_ENDREASON_");
+                                                            String macAddress = getStringbetweenStrings(detailedStatus, "_MACBEGIN_", "_ENDMAC_");
+                                                            String cpuUsageLoad = getStringbetweenStrings(detailedStatus, "_CPU_", "_ENDCPU_");
+                                                            double load = Double.parseDouble(cpuUsageLoad);
+                                                            double cpuPercent = round((load / (double) 4) * (double) 100, 2);
+                                                            String memUsage = getStringbetweenStrings(detailedStatus, "_MEM_", "_ENDMEM_");
+                                                            double ramd = Double.parseDouble(memUsage);
+                                                            double ramr = round(ramd, 2);
+                                                            if (!updatedReason.contains("NOT") &&
+                                                                    (!updatedReason.contains("STR") &&
+                                                                            !updatedReason.contains("NEW") &&
+                                                                            !updatedReason.contains("OLD") &&
+                                                                            !string.contains("not_recorded") &&
+                                                                            !string.contains("regi_str") &&
+                                                                            !string.contains("new") &&
+                                                                            !string.contains("regi_old") &&
+                                                                            !string.contains("Not updated") &&
+                                                                            !string.contains("old") &&
+                                                                            !string.contains("str") ||
+                                                                            string.contains("NOT_VALID_REQUEST"))) {
+                                                                updateCurrent_secondary(getApplicationContext(),
+                                                                        "UNKNOWN ANSWER",
+                                                                        "Something happened!", R.drawable.error_icon);
+                                                                sendMessage_Telegram("[UNKNOWN ANSWER]" + string);
+                                                            } else {
+                                                                updateCurrent_secondary(getApplicationContext(),
+                                                                        "OK ANSWER",
+                                                                        "SSID: " + lastHandledSSID + "\nMAC: " + macAddress + "\nReason: " + updatedReason + "\nCPU: " + cpuPercent + "%\nRAM: " + ramr + "%", R.drawable.okicon);
+                                                            }
+                                                        } else {
+                                                            updateCurrent_secondary(getApplicationContext(),
+                                                                    "BAD ANSWER",
+                                                                    "Strange Error. Missing <detailed status>!", R.drawable.failicon);
+                                                            sendMessage_Telegram("[BAD ANSWER][missing detailed status] " + string);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        //updateCurrent_error(getApplicationContext(), "LegacySonty [ERROR]", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
+                                                        updateCurrent_exception(getApplicationContext(),
+                                                                "ERROR", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
+                                                        sendMessage_Telegram("[EXCEPTION] " + e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
+                                                        RequestTask r2 = new RequestTask();
+                                                        r2.addListener(this);
+                                                        r2.execute(reqBody);
+                                                        //updateCurrent_error(getApplicationContext(), "LegacySonty", "GOT NULL HTTP RESPONSE! RETRY!");
+                                                        e.printStackTrace();
                                                     }
-                                                } catch (Exception e) {
-                                                    //updateCurrent_error(getApplicationContext(), "LegacySonty [ERROR]", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
-                                                    RequestTask r2 = new RequestTask();
-                                                    r2.addListener(this);
-                                                    r2.execute(reqBody);
-                                                    //updateCurrent_error(getApplicationContext(), "LegacySonty", "GOT NULL HTTP RESPONSE! RETRY!");
-                                                    e.printStackTrace();
                                                 }
                                             }
-                                        }
-                                    };
-                                    RequestTask r = new RequestTask();
-                                    r.addListener(rtl);
-                                    r.execute(reqBody);
-                                }
-                            };
-                            BackgroundService.executor.submit(runnable);
-
+                                        };
+                                        RequestTask r = new RequestTask();
+                                        r.addListener(rtl);
+                                        r.execute(reqBody);
+                                    }
+                                };
+                                BackgroundService.webRequestExecutor.submit(runnable);
+                            } else {
+                                //Log.d("WIFI_UNI_", "Not new, not handling");
+                            }
                         }
                     }
                 } catch (Exception e) {
+                    updateCurrent_exception(getApplicationContext(), "ERROR", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
+                    sendMessage_Telegram("[EXCEPTION] " + e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
                     e.printStackTrace();
                 }
 
@@ -286,10 +344,10 @@ public class BackgroundService extends Service {
         alarmMgr.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis(),
                 1 * 30 * 1000, pendingIntent);
 
-        new SimpleAlarmManager(getApplicationContext()).setup(SimpleAlarmManager.INTERVAL_DAY,
-                10, 0, 0).register(5).start();
+        // new SimpleAlarmManager(getApplicationContext()).setup(SimpleAlarmManager.INTERVAL_DAY, 10, 0, 0).register(5).start();
         //locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, locationListener, null);
         //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, locationListener, null);
+
         try {
             wifiManager.startScan();
         } catch (Exception e) {
@@ -299,34 +357,9 @@ public class BackgroundService extends Service {
         final android.os.Handler handler = new android.os.Handler();
         handler.postDelayed(new Runnable() {
             public void run() {
+                WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
                 try {
-                    WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-                    WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-                    if (BackgroundService.scanresult.size() >= 1) {
-                        if (wifiManager.isWifiEnabled()) {
-                            ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-                            NetworkInfo wifiinfo = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-                            if (!wifiinfo.isConnectedOrConnecting()) {
-                                //connectStrongestOpenWifi(getApplicationContext(),
-                                //      BackgroundService.scanresult);
-                            } else if (convertDBM(wifiInfo.getRssi()) < 10) {
-                                //connectStrongestOpenWifi(getApplicationContext(),
-                                //      BackgroundService.scanresult);
-                            }
-                        }
-                    } else {
-                        try {
-                            wifiManager.startScan();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        if (BackgroundService.scanresult.size() >= 1) {
-                        } else {
-                            wifiManager.startScan();
-                            if (BackgroundService.scanresult.size() >= 1) {
-                            }
-                        }
-                    }
+                    wifiManager.startScan();
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -342,6 +375,16 @@ public class BackgroundService extends Service {
             final BluetoothAdapter.LeScanCallback leReceiver = new BluetoothAdapter.LeScanCallback() {
                 @Override
                 public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
+                    try {
+                        if (uni_blue.get(device.getAddress()) < rssi) {
+                            Log.d("UNI_B", "stronger: " + uni_blue.get(device.getAddress()) + " -> " + rssi);
+                            uni_blue.put(device.getAddress(), rssi);
+                        }
+                    } catch (Exception ee) {
+                        Log.d("UNI_B", "fresh ble -> " + device.getAddress());
+                        uni_blue.put(device.getAddress(), rssi);
+                    }
+
                     handleBluetoothDeviceFound(device, true);
                     if (!bluetoothAdapter.isDiscovering()) {
                         bluetoothAdapter.startDiscovery();
@@ -385,20 +428,8 @@ public class BackgroundService extends Service {
         //NearbyHandler nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
         //nearby.startAdvertising();
         //nearby.startDiscovering();
-        try {
-            String unenrypted = "test";
-            SecretKey secret = SontHelper.Encrypt.generateKey();
-            Log.d("AES_", "SECURE ALG=" + secret.getAlgorithm());
-            Log.d("AES_", "SECURE FRM=" + secret.getFormat());
-            String e = new String(secret.getEncoded(), StandardCharsets.UTF_8);
-            Log.d("AES_", "SECURE STR=" + e);
-            byte[] encrypted = SontHelper.Encrypt.encryptMsg(unenrypted, secret);
-            String s = new String(encrypted, StandardCharsets.UTF_8);
-            Log.d("AES_", "Encrypted: " + s);
-            Log.d("AES_", "Decrypted: " + SontHelper.Encrypt.decryptMsg(encrypted, secret));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+
+
     }
 
 
@@ -592,7 +623,32 @@ public class BackgroundService extends Service {
         nm.notify(58, notification);
     }
 
-    public static void updateCurrent_error(Context c, String title, String text) {
+    public static void updateCurrent_secondary(Context c, String title, String text, int color_drawable) {
+        Random rnd = new Random();
+        int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
+        Notification notification = new NotificationCompat.Builder(c, "sontylegacy")
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSound(null)
+                .setPriority(NotificationManager.IMPORTANCE_LOW)
+                .setLights(color, 300, 300)
+                .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
+                .setColorized(true)
+                .setColor(color)
+                .setStyle(new NotificationCompat.BigTextStyle()
+                                .bigText("")
+                        //.setSummaryText("IP: " + ip)
+                        //.setBigContentTitle()
+                )
+                .setSmallIcon(color_drawable)
+                .setOngoing(false)
+                .setChannelId("sontylegacy")
+                .build();
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        nm.notify(60, notification);
+    }
+
+    public static void updateCurrent_exception(Context c, String title, String text) {
         int color_drawable = R.drawable.error_icon;
         Random rnd = new Random();
         int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
@@ -733,7 +789,7 @@ public class BackgroundService extends Service {
         return result;
     }
 
-    public static void sendMessage_BetaBot(String message) {
+    public static void sendMessage_Telegram(String message) {
         int retryCount = 0;
         try {
             String url = "https://api.telegram.org/bot990712757:AAGyuPqZJUNoRAi1DMl-oRzEYInZz7UP0C4/sendMessage?chat_id=1093250115&text=" +
@@ -754,7 +810,7 @@ public class BackgroundService extends Service {
                     });
         } catch (Exception e) {
             retryCount++;
-            sendMessage_BetaBot(message + "_" + retryCount);
+            sendMessage_Telegram(message + "_" + retryCount);
             e.printStackTrace();
         }
     }
@@ -891,29 +947,18 @@ public class BackgroundService extends Service {
                     full_str += str;
                 }
                 bytesReceived += full_str.length();
+
                 Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
                 return full_str;
             } catch (Exception e) {
                 error_counter++;
-                Runnable r = new Runnable() {
+                Runnable retryRunnable = new Runnable() {
                     @Override
                     public void run() {
                         executeRequest(host, port, URL, METHOD_POST, postData);
                     }
                 };
-                executor.submit(r);
-                /*
-                StackTraceElement[] st = e.getStackTrace();
-                String traces = "";
-                traces += "CLASS: " + st[0].getClassName() +
-                        " -> METHOD: " + st[0].getMethodName() +
-                        " -> LINE: " + st[0].getLineNumber() + "\n";
-                traces += "CLASS: " + st[st.length - 1].getClassName() +
-                        " -> METHOD: " + st[st.length - 1].getMethodName() +
-                        " -> LINE: " + st[st.length - 1].getLineNumber();
-                    //BackgroundService.updateCurrent_error(c, "LegacySonty [HTTP ERROR]",
-                    //e.getMessage() + "\n\n" + traces);
-                */
+                webRequestExecutor.submit(retryRunnable);
                 e.printStackTrace();
                 return null;
             }
@@ -964,7 +1009,7 @@ public class BackgroundService extends Service {
         }
     }
 
-    public static class SimpleAlarmManager {
+    /*public static class SimpleAlarmManager {
         private final Context context;
         private final Intent alarmIntent;
         private int hourOfDay;
@@ -1086,7 +1131,7 @@ public class BackgroundService extends Service {
             return this;
         }
 
-    }
+    } */
 
     public static class TimeElapsedUtil {
 
