@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
+import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 
@@ -62,6 +63,8 @@ public class notificationReceiver extends BroadcastReceiver {
                 e.printStackTrace();
             }
         }
-
+        if (intent.getAction() == "test" || requestCode == 999) {
+            Log.d("uni_w", "tesztelgetek");
+        }
     }
 }
