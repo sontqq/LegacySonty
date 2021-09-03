@@ -1,36 +1,48 @@
 package com.sontme.legacysonty;
 
 import android.Manifest;
+import android.app.ActivityManager;
+import android.app.AppOpsManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.location.GpsStatus;
 import android.location.LocationManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
+import android.util.Log;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
 
 public class MainActivity extends AppCompatActivity implements GpsStatus.Listener {
     TextView txt;
-    TextView txt2;
+    TextView statsTextview;
     SeekBar seekBar;
     TextView seekval;
 
-    static Handler h;
-    static Runnable r;
+    static Handler statsHandler;
+    static Runnable statsRunnable;
 
     LocationManager locationManager;
 
@@ -46,6 +58,64 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         }
     };
 
+    public void managePermissions() {
+        PackageInfo info = null;
+        try {
+            info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(), PackageManager.GET_PERMISSIONS);
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+        String[] permissions = info.requestedPermissions;
+
+        String[] PERMISSIONS = {
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        };
+
+        String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
+                .toArray(String[]::new);
+
+        if (!hasPermissions(getApplicationContext(), PERMISSIONS_ALL)) {
+            ActivityCompat.requestPermissions(this, PERMISSIONS_ALL, 1);
+        }
+
+        PowerManager powerManager = (PowerManager) getApplicationContext().getSystemService(POWER_SERVICE);
+        String packageName = getPackageName();
+        Intent ii = new Intent();
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            ii.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            ii.setData(Uri.parse("package:" + packageName));
+            startActivity(ii);
+        }
+
+        ii.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        ii.setData(Uri.parse("package:" + packageName));
+        startActivity(ii);
+
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            if (!ActivityCompat.shouldShowRequestPermissionRationale(this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.READ_CONTACTS},
+                        233);
+            }
+        }
+    }
+
+    public static boolean hasPermissions(Context context, String... permissions) {
+        if (context != null && permissions != null) {
+            for (String permission : permissions) {
+                if (ActivityCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
+                    Log.d("PERMISSION_CHECK", "MISSING PERMISSION NOW GRANTED: " + permission);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -54,6 +124,32 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
         };
+        managePermissions();
+        PackageInfo info = null;
+        try {
+            info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(), PackageManager.GET_PERMISSIONS);
+        } catch (PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
+        String[] permissions = info.requestedPermissions;
+
+        String[] PERMISSIONS = {
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.ACCESS_NETWORK_STATE,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        };
+
+        String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
+                .toArray(String[]::new);
+        if (!hasPermissions(getApplicationContext(), PERMISSIONS_ALL)) {
+            ActivityCompat.requestPermissions(this, PERMISSIONS_ALL, 1);
+        }
+
+
         int permission = ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
         if (permission != PackageManager.PERMISSION_GRANTED) {
             // We don't have permission so prompt the user
@@ -65,32 +161,37 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         }
         if (ActivityCompat.checkSelfPermission(getApplicationContext(),
                 Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            String[] PERMISSIONS = {
+            String[] PERMISSIONS1 = {
                     Manifest.permission.ACCESS_COARSE_LOCATION,
                     Manifest.permission.ACCESS_FINE_LOCATION
             };
             ActivityCompat.requestPermissions(this,
-                    PERMISSIONS, 1);
+                    PERMISSIONS1, 1);
         }
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        List<ActivityManager.AppTask> tasks = am.getAppTasks();
+        if (tasks != null && tasks.size() > 0)
+            tasks.get(0).setExcludeFromRecents(true);
+        AppOpsManager appOps = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
+        int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(), getPackageName());
+        if (mode != AppOpsManager.MODE_ALLOWED) {
+            Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+            startActivity(intent);
+        }
+
         if (ActivityCompat.checkSelfPermission(getApplicationContext(),
                 Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             locationManager.addGpsStatusListener(this);
 
             TextView txt3 = findViewById(R.id.txt3);
-            boolean b;
-            try {
-                int a = BackgroundService.cnt_new;
-                b = true;
-                txt3.setText("Service Status: " + b);
-            } catch (Exception e) {
-                b = false;
-                txt3.setText("Service Status: " + b);
-            }
-            txt3.setText("Service Status: " + b);
+            int a = BackgroundService.cnt_new;
+            txt3.setText("Service Status: Unknown2");
+            txt3.setText("Service Status: Unknown2_2");
 
             txt = findViewById(R.id.txt);
-            txt2 = findViewById(R.id.txt2);
+            statsTextview = findViewById(R.id.txt2);
             seekBar = findViewById(R.id.seekBar);
             seekval = findViewById(R.id.seekval2);
             seekBar.setContentDescription("Executor Pool Core Size");
@@ -128,34 +229,28 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             startService(i);
             bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
 
-            final Runnable r1;
-            final Handler h1 = new Handler();
-            h1.postDelayed(r1 = new Runnable() {
+            final Handler locationRequestHandler = new Handler();
+            locationRequestHandler.postDelayed(new Runnable() {
                 public void run() {
-
                     if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                     }
-                    //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, BackgroundService.locationListener, null);
                     try {
-                        BackgroundService.locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER,
+                        BackgroundService.locationManager.requestSingleUpdate(
+                                LocationManager.NETWORK_PROVIDER,
                                 BackgroundService.locationListener, null);
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
-                    h1.postDelayed(this, 1000);
+                    locationRequestHandler.postDelayed(this, 1000);
                 }
             }, 1000);
 
-
-            h = new Handler();
-            h.postDelayed(r = new Runnable() {
+            statsHandler = new Handler();
+            statsHandler.postDelayed(statsRunnable = new Runnable() {
                 public void run() {
-                    //if (BackgroundService.executor != null)
                     try {
-
                         Intent i = new Intent(MainActivity.this, BackgroundService.class);
                         startService(i);
-
                         int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
                         int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
                         String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
@@ -172,38 +267,45 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                 "Time: " + BackgroundService.cnt_updated_time + " " +
                                 "Str: " + BackgroundService.cnt_updated_str;
 
-                        txt2.setText(stats);
-                        TextView txt3 = findViewById(R.id.txt3);
-                        boolean b;
-                        try {
-                            b = true;
-                        } catch (Exception e) {
-                            b = false;
-                        }
-                        txt3.setText("Service Status: " + b);
-                        h.postDelayed(this, 250);
+                        statsTextview.setText(stats);
+                        TextView serviceStatusTextview = findViewById(R.id.txt3);
+                        serviceStatusTextview.setText("Service Status: Unknown");
+                        statsHandler.postDelayed(this, 250);
                     } catch (Exception e) {
+                        int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
+                        int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
+                        String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
+                                "Executor Pool Queue: " + executorServiceQueueSize + "\n" +
+                                "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
+                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed();
+                        txt.setText(threadString);
+                        String stats = "";
 
-                        StackTraceElement[] st = e.getStackTrace();
-                        String traces = "";
-                        traces += "CLASS: " + st[0].getClassName() +
-                                " -> METHOD: " + st[0].getMethodName() +
-                                " -> LINE: " + st[0].getLineNumber() + "\n";
-                        traces += "CLASS: " + st[st.length - 1].getClassName() +
-                                " -> METHOD: " + st[st.length - 1].getMethodName() +
-                                " -> LINE: " + st[st.length - 1].getLineNumber();
-                        txt2.setText("ERROR! \n\n" + traces);
-                        /*BackgroundService.updateCurrent_error(getApplicationContext(), "LegacySonty [TIMER ERROR]", traces);*/
-                        e.printStackTrace();
+                        stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
+                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.error_counter + " " +
+                                "New: " + BackgroundService.cnt_new + " " +
+                                "Time: " + BackgroundService.cnt_updated_time + " " +
+                                "Str: " + BackgroundService.cnt_updated_str;
+
+                        statsTextview.setText(stats);
+                        TextView serviceStatusTextview = findViewById(R.id.txt3);
+                        serviceStatusTextview.setText("Service Status: Unknown");
+                        statsHandler.postDelayed(this, 250);
                     }
                 }
             }, 3000);
 
             boolean rooted = BackgroundService.RootUtil.isDeviceRooted();
             boolean emulator = BackgroundService.AdminTOOLS.checkIfDeviceIsEmulator(getApplicationContext());
-            txt2.setText("ROOTED: " + rooted + "\n" + "EMULATOR: " + emulator);
+            statsTextview.setText("ROOTED: " + rooted + "\n" + "EMULATOR: " + emulator);
         } else {
             Toast.makeText(getApplicationContext(), "Missing location permission!", Toast.LENGTH_LONG).show();
+        }
+        int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE);
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_PHONE_STATE}, 1);
+        } else {
+            //TODO
         }
     }
 
@@ -218,6 +320,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                         }
                         long lastUpdate;
                         try {
+                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
                             lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
                         } catch (Exception e) {
                             lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
@@ -233,15 +336,15 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                     break;
                 case GpsStatus.GPS_EVENT_FIRST_FIX:
                     txt4.setText("FIRST LOCATION");
-                    Toast.makeText(getApplicationContext(), "GPS: FIRST LOCATION", Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getApplicationContext(), "GPS: FIRST LOCATION", Toast.LENGTH_LONG).show();
                     break;
                 case GpsStatus.GPS_EVENT_STARTED:
                     txt4.setText("GPS STARTED");
-                    Toast.makeText(getApplicationContext(), "GPS: STARTED", Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getApplicationContext(), "GPS: STARTED", Toast.LENGTH_LONG).show();
                     break;
                 case GpsStatus.GPS_EVENT_STOPPED:
                     txt4.setText("GPS STOPPED");
-                    Toast.makeText(getApplicationContext(), "GPS: STOPPED", Toast.LENGTH_LONG).show();
+                    //Toast.makeText(getApplicationContext(), "GPS: STOPPED", Toast.LENGTH_LONG).show();
                     break;
             }
         } catch (Exception e) {

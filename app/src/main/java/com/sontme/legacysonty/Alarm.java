@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
 
 import java.util.Iterator;
 import java.util.Set;
@@ -14,17 +15,9 @@ import java.util.Set;
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
-        //Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
-        //for (Iterator<String> it = set.iterator(); it.hasNext(); ) {
-        //int id = Integer.parseInt(it.next());
-        //BackgroundService.SimpleAlarmManager.initWithId(context, id).start();
-        //}
-        //int code = intent2.getIntExtra("requestCode", 1);
-        //if (code == 66)
-        //  BackgroundService.vibrate(context);
         Intent serviceIntent = new Intent(context, BackgroundService.class);
         context.startService(serviceIntent);
-
+        Log.d("ALARM_", "RAN!");
         AlarmManager alarmMgr = (AlarmManager) context.getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(context, Alarm.class);
         intent.putExtra("requestCode", 66);

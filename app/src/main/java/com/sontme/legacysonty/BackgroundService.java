@@ -10,6 +10,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -21,6 +22,8 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
@@ -31,6 +34,7 @@ import android.os.IBinder;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.widget.Toast;
@@ -38,6 +42,7 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
@@ -60,24 +65,27 @@ import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class BackgroundService extends Service {
 
     public static WifiManager wifiManager;
-    //public static List<ScanResult> scanresult;
+    public static ArrayList<Runnable> webReqRunnablesList;
     public static ThreadPoolExecutor webRequestExecutor;
     public static Location CURRENT_LOCATION;
     public static int LOCATON_CHANGE_COUNTER;
@@ -85,13 +93,14 @@ public class BackgroundService extends Service {
     public static int allCount;
     public static TimeElapsedUtil startedAtTime;
 
-    Map<String, Integer> uni_wifi = new LinkedHashMap<>();
-    Map<String, Integer> uni_blue = new LinkedHashMap<>();
+    public static HashMap<String, Integer> uni_wifi;
+    public static HashMap<String, Integer> uni_blue;
 
     static Context context;
 
     public static ArrayList<BluetoothDeviceWithLocation> bluetoothDevicesFound;
-    public boolean toRegisterAP;
+    public static boolean connectOpen = false;
+    public static boolean toRegisterAP;
     static int cnt_notrecorded;
     static int cnt_new;
     static int cnt_updated_time;
@@ -104,45 +113,69 @@ public class BackgroundService extends Service {
     public static int TIME = 0;
     public static int DISTANCE = 0;
 
-    public boolean decideIfNew_wifi(List<ScanResult> wifi_scanresult) {
-        List<ScanResult> finalScanResult = new ArrayList<>();
-        finalScanResult.addAll(wifi_scanresult);
-        boolean result = true;
-        for (ScanResult sr : finalScanResult) {
-            if (uni_wifi.containsKey(sr.SSID + "_" + sr.BSSID)) {
-                if (uni_wifi.get(sr.SSID + "_" + sr.BSSID) < sr.level) {
-                    Log.d("UNI_W", "stronger: " + sr.SSID + " -> " + sr.BSSID + " | from (" + uni_wifi.get(sr.SSID + "_" + sr.BSSID) + ") to (" + sr.level + ")");
-                    uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
-                    result = true;
-                    return true;
-                } else {
-                    result = false;
-                    return false;
-                }
-            } else {
-                Log.d("UNI_W", "fresh ap: " + sr.SSID + " -> " + sr.BSSID + " | (" + sr.level + ")");
-                uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
-                result = true;
-                return true;
+    static int longestCommonSubstring(char X[], char Y[], int m, int n) {
+        int LCStuff[][] = new int[m + 1][n + 1];
+        int result = 0;
+
+        for (int i = 0; i <= m; i++) {
+            for (int j = 0; j <= n; j++) {
+                if (i == 0 || j == 0)
+                    LCStuff[i][j] = 0;
+                else if (X[i - 1] == Y[j - 1]) {
+                    LCStuff[i][j]
+                            = LCStuff[i - 1][j - 1] + 1;
+                    result = Integer.max(result,
+                            LCStuff[i][j]);
+                } else
+                    LCStuff[i][j] = 0;
             }
         }
         return result;
+    }
+
+    public boolean decideIfNew_wifi(List<ScanResult> wifi_scanresult) {
+        boolean result = true;
+        for (ScanResult sr : wifi_scanresult) {
+            if (uni_wifi.containsKey(sr.SSID + "_" + sr.BSSID)) {
+                if (uni_wifi.get(sr.SSID + "_" + sr.BSSID) < sr.level) {
+                    Log.d("UNI_W_" + uni_wifi.size(), "stronger: " + sr.SSID + " -> " + sr.BSSID + " | from (" + uni_wifi.get(sr.SSID + "_" + sr.BSSID) + ") to (" + sr.level + ")");
+                    uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
+                    continue;
+                    //return true;
+                } else {
+                    //continue;
+                    return false;
+                }
+            } else {
+                uni_wifi.put(sr.SSID + "_" + sr.BSSID, sr.level);
+                Log.d("UNI_W_" + uni_wifi.size(), "new ap: " + sr.SSID + " -> " + sr.BSSID + " | (" + sr.level + ")");
+                continue;
+                //return true;
+            }
+        }
+        return result;
+    }
+
+    public boolean decideIfNew_blue(BluetoothDevice device) {
+        if (uni_blue.containsKey(device.getName() + "_" + device.getAddress())) {
+            return false;
+        } else {
+            uni_blue.put(device.getName() + "_" + device.getAddress(), 0);
+            Log.d("UNI_B_" + uni_blue.size(),
+                    "new device: " + device.getName() + " -> " + device.getAddress() + " | " +
+                            device.getType() + " | " + device.getBondState() + " | " +
+                            device.getBluetoothClass().getClass() + " | " + device.getBluetoothClass().getDeviceClass());
+            return true;
+        }
     }
 
     BroadcastReceiver wifiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             try {
-                /*
-                if (uni_wifi.size() > 0)
-                    Log.d("UNI_W", "wifi_size -> " + uni_wifi.size());
-                if (uni_blue.size() > 0)
-                    Log.d("UNI_B", "blue_size -> " + uni_blue.size());
-                */
                 wifiManager.startScan();
             } catch (Exception e) {
                 e.printStackTrace();
-                //    }
             }
         }
     };
@@ -150,8 +183,16 @@ public class BackgroundService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        //sendMessage_Telegram("LegacyService started");
+        try {
+            String android_id = Settings.Secure.getString(getContentResolver(),
+                    Settings.Secure.ANDROID_ID);
+            sendMessage_Telegram("LegacyService started! Device: " + android_id);
+        } catch (Exception e) {
+            sendMessage_Telegram("LegacyService started! Device ID not obtainable");
+        }
         bluetoothDevicesFound = new ArrayList<>();
+        webReqRunnablesList = new ArrayList<>();
+
         context = getApplicationContext();
         cnt_notrecorded = 0;
         cnt_new = 0;
@@ -161,9 +202,36 @@ public class BackgroundService extends Service {
 
         showOngoing("Waiting..");
         startedAtTime = new TimeElapsedUtil();
+        uni_wifi = new LinkedHashMap<>();
+        uni_blue = new LinkedHashMap<>();
 
-        webRequestExecutor = new ThreadPoolExecutor(1, Integer.MAX_VALUE,
-                0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+        webRequestExecutor = new CustomThreadPoolExecutor(1, Integer.MAX_VALUE,
+                0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>()) {
+            @Override
+            protected void beforeExecute(Thread t, Runnable r) {
+                Log.d("CTPE_", "Before_ Thread: " + t.getName());
+            }
+
+            @Override
+            protected void afterExecute(Runnable r, Throwable t) {
+                try {
+                    Log.d("CTPE_", "After_ Throwable: " + t.getMessage());
+                } catch (Exception e) {
+                    Log.d("CTPE_", "After_");
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void execute(Runnable command) {
+                Log.d("CTPE_", "Execute_");
+            }
+
+            @Override
+            public void shutdown() {
+                Log.d("CTPE_", "Shutdown_");
+            }
+        };
         try {
             registerReceiver(wifiReceiver, new IntentFilter(
                     WifiManager.SCAN_RESULTS_AVAILABLE_ACTION));
@@ -173,34 +241,39 @@ public class BackgroundService extends Service {
         }
         wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(final Location location) {
                 CURRENT_LOCATION = location;
                 LOCATON_CHANGE_COUNTER++;
                 CURRENT_LOCATION_LASTTIME = SystemClock.elapsedRealtime();
-                Log.d("uni_w", "count: " + uni_wifi.size());
                 try {
-                    List<ScanResult> finalScanResult = new ArrayList<>();
-                    finalScanResult.addAll(wifiManager.getScanResults());
+                    //List<ScanResult> finalScanResult = new ArrayList<>();
+                    //finalScanResult.addAll(wifiManager.getScanResults());
+
+                    //connectStrongestOpenWifi(getApplicationContext(), wifiManager.getScanResults());
+
                     for (final ScanResult accessPoint : wifiManager.getScanResults()) {
-                        toRegisterAP = decideIfNew_wifi(finalScanResult);
-                        toRegisterAP = true;
+                        toRegisterAP = decideIfNew_wifi(wifiManager.getScanResults());
+                        //toRegisterAP = true; // to save bandwidth and battery
                         if (toRegisterAP == true) {
                             if ((accessPoint.BSSID != null) && (accessPoint.BSSID.length() >= 1)) {
+                                String utf_letter = locationToStringAddress(getApplicationContext(), location)
+                                        .replaceAll("ő", "ö");
+                                utf_letter = utf_letter.replaceAll("ű", "ü");
+                                utf_letter = utf_letter.replaceAll("Ő", "Ö");
+                                utf_letter = utf_letter.replaceAll("Ű", "Ü");
                                 final String reqBody =
                                         "?id=0&ssid=" + accessPoint.SSID +
-                                                "&add=" + locationToStringAddress(getApplicationContext(),
-                                                location) +
+                                                "&add=" + utf_letter +
                                                 "&bssid=" + accessPoint.BSSID +
                                                 "&source=" + "legacy_sonty" +
                                                 "&enc=" + convertEncryption(accessPoint) +
-                                                "&rssi=" + /*convertDBM(*/accessPoint.level/*)*/ +
+                                                "&rssi=" + accessPoint.level +
                                                 "&long=" + location.getLongitude() +
                                                 "&lat=" + location.getLatitude() +
                                                 "&channel=" + accessPoint.frequency;
-                                Runnable webReqRunnable = new Runnable() {
+                                Runnable webReqRunnable_wifi = new Runnable() {
                                     @Override
                                     public void run() {
                                         RequestTaskListener requestTaskListener = new RequestTaskListener() {
@@ -227,7 +300,8 @@ public class BackgroundService extends Service {
                                                                 "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
                                                                 "Spd: " + round(CURRENT_LOCATION.getSpeed() * 3.6, 1) + " km/h @ " +
                                                                 "Acc: " + CURRENT_LOCATION.getAccuracy() + " Src: " + CURRENT_LOCATION.getProvider() + "\n" +
-                                                                "Queue: " + webRequestExecutor.getActiveCount() + " / " + webRequestExecutor.getQueue().size() + "\n" + "Not: " + cnt_notrecorded + " " +
+                                                                "Queue: " + webRequestExecutor.getActiveCount() + " / " + webRequestExecutor.getQueue().size() + "\n" +
+                                                                "Not: " + cnt_notrecorded + " " +
                                                                 "Error: " + Live_Http_GET_SingleRecord.error_counter + " " +
                                                                 "New: " + cnt_new + " " +
                                                                 "Time: " + cnt_updated_time + " " +
@@ -244,7 +318,7 @@ public class BackgroundService extends Service {
                                                             double cpuPercent = round((load / (double) 4) * (double) 100, 2);
                                                             String memUsage = getStringbetweenStrings(detailedStatus, "_MEM_", "_ENDMEM_");
                                                             double ramd = Double.parseDouble(memUsage);
-                                                            double ramr = round(ramd, 2);
+                                                            double ramPercent = round(ramd, 2);
                                                             if (!updatedReason.contains("NOT") &&
                                                                     (!updatedReason.contains("STR") &&
                                                                             !updatedReason.contains("NEW") &&
@@ -263,7 +337,14 @@ public class BackgroundService extends Service {
                                                             } else {
                                                                 updateCurrent_secondary(getApplicationContext(),
                                                                         "OK ANSWER",
-                                                                        "SSID: " + lastHandledSSID + "\nMAC: " + macAddress + "\nReason: " + updatedReason + "\nCPU: " + cpuPercent + "%\nRAM: " + ramr + "%", R.drawable.okicon);
+                                                                        "SSID: " + lastHandledSSID +
+                                                                                "\nMAC: " + macAddress +
+                                                                                "\nStrength: " + accessPoint.level +
+                                                                                "\nReason: " + updatedReason +
+                                                                                "\nCPU: " + cpuPercent +
+                                                                                "%\nRAM: " + ramPercent +
+                                                                                "%",
+                                                                        R.drawable.okicon);
                                                             }
                                                         } else {
                                                             updateCurrent_secondary(getApplicationContext(),
@@ -272,8 +353,7 @@ public class BackgroundService extends Service {
                                                             sendMessage_Telegram("[BAD ANSWER][missing detailed status] " + string);
                                                         }
                                                     } catch (Exception e) {
-                                                        updateCurrent_exception(getApplicationContext(),
-                                                                "ERROR", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
+                                                        //updateCurrent_exception(getApplicationContext(), "ERROR", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
                                                         RequestTask requestTaskRetry = new RequestTask();
                                                         requestTaskRetry.addListener(this);
                                                         requestTaskRetry.execute(reqBody);
@@ -287,21 +367,24 @@ public class BackgroundService extends Service {
                                         requestTask.execute(reqBody);
                                     }
                                 };
-                                BackgroundService.webRequestExecutor.submit(webReqRunnable);
+                                BackgroundService.webRequestExecutor.submit(webReqRunnable_wifi);
+                                webReqRunnablesList.add(webReqRunnable_wifi);
                             } else {
-                                // missing MAC Address - ignoring
+                                updateCurrent_secondary(getApplicationContext(),
+                                        "Filtered AP",
+                                        "[w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] Missing MAC Address | Invalid ScanList",
+                                        R.drawable.error_icon);
                             }
                         } else {
                             updateCurrent_secondary(getApplicationContext(),
                                     "Filtered AP",
-                                    "[#" + uni_wifi.size() + "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " + "AP is ignored due to weak signal \n" +
-                                            "Queue: " + webRequestExecutor.getActiveCount() + " / "
-                                            + webRequestExecutor.getQueue().size(),
+                                    "[w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " + "AP is ignored due to weak signal",
                                     R.drawable.error_icon);
+
                         }
                     }
+
                 } catch (Exception e) {
-                    updateCurrent_exception(getApplicationContext(), "ERROR", e.getMessage() + "\n\n" + e.getStackTrace()[0].toString() + " ON LINE: " + e.getStackTrace()[0].getLineNumber());
                     e.printStackTrace();
                 }
 
@@ -322,6 +405,16 @@ public class BackgroundService extends Service {
 
             }
         };
+
+
+        webRequestExecutor.setKeepAliveTime(30, TimeUnit.SECONDS);
+        webRequestExecutor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
+            @Override
+            public void rejectedExecution(Runnable runnable, ThreadPoolExecutor threadPoolExecutor) {
+                Toast.makeText(getApplicationContext(), "webReqExecutor REJECTED a Runnable! "
+                        + threadPoolExecutor.getQueue().size(), Toast.LENGTH_LONG).show();
+            }
+        });
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
         }
@@ -418,36 +511,239 @@ public class BackgroundService extends Service {
             Log.d("Bluetooth_Scan_Classic/LE_", "Started");
         }
 
+
+        Log.d("netw_", "Global Mobile RX: " + roundBandwidth(
+                android.net.TrafficStats.getTotalRxBytes()));
+        Log.d("netw_", "Global Mobile TX: " + roundBandwidth(
+                android.net.TrafficStats.getTotalTxBytes()));
+
         //NearbyHandler nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
         //nearby.startAdvertising();
         //nearby.startDiscovering();
 
+        vibrate(getApplicationContext());
+
+        Thread tempt = new Thread() {
+            @Override
+            public void run() {
+                File path = getExternalFilesDir(null);
+                File file = new File(path, "BLsession.txt");
+                try {
+                    Scanner sc = new Scanner(file, "UTF-8");
+                    ArrayList<String> lines_arr = new ArrayList<String>();
+                    //Collections.shuffle(lines_arr);
+                    while (sc.hasNextLine()) {
+                        String l = sc.nextLine();
+                        if (!l.contains("|  |  |")) {
+                            lines_arr.add(sc.nextLine());
+                        }
+                    }
+                    sc.close();
+                    for (int i = lines_arr.size() - 1; i >= 0; i--) {
+                        String name = getStringbetweenStrings(lines_arr.get(i), "_name_", "_endname_");
+                        String address = getStringbetweenStrings(lines_arr.get(i), "_address_", "_endaddress_");
+                        String latitude = getStringbetweenStrings(lines_arr.get(i), "_lat_", "_endlat_");
+                        String longitude = getStringbetweenStrings(lines_arr.get(i), "_lng_", "_endlng_");
+                        if (!lines_arr.get(i).contains("|  |  |")) {
+                            String utf_letter = locationToStringAddress(getApplicationContext(), CURRENT_LOCATION)
+                                    .replaceAll("ő", "ö");
+                            utf_letter = utf_letter.replaceAll("ű", "ü");
+                            utf_letter = utf_letter.replaceAll("Ő", "Ö");
+                            utf_letter = utf_letter.replaceAll("Ű", "Ü");
+                            if (!utf_letter.contains("Egri") && !utf_letter.contains("25-") && !utf_letter.contains("Unknown")) {
+                                Log.d("BL_FILE_", "siker: " + utf_letter);
+                                final String reqBody =
+                                        "?id=0&name=" + name +
+                                                "&address=" + utf_letter +
+                                                "&macaddress=" + address +
+                                                "&islowenergy=" + "unknown" +
+                                                "&source=" + "legacy_sonty" +
+                                                "&long=" + longitude +
+                                                "&lat=" + latitude +
+                                                "&progress=" + lines_arr.size() + "_" + i;
+                                String finalUtf_letter = utf_letter;
+                                Runnable webReqRunnable_bl_init = new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        RequestTaskListener requestTaskListener_bl = new RequestTaskListener() {
+                                            @Override
+                                            public void update(String string) {
+                                                if (string != null) {
+                                                    if (string.contains("new_device")) {
+                                                        Log.d("BL_TEST_", "NEW DEVICE FOUND: " + name + " -> " + address);
+                                                        cnt_new++;
+                                                    } else if (string.contains("Not updated")) {
+                                                        Log.d("BL_TEST_", "Not updated");
+                                                        cnt_notrecorded++;
+                                                    } else if (string.contains("not_recorded")) {
+                                                        cnt_notrecorded++;
+                                                    } else if (string.contains("regi_old")) {
+                                                        cnt_updated_time++;
+                                                    }
+                                                    updateCurrent_secondary(getApplicationContext(),
+                                                            "Bluetooth ANSWER",
+                                                            name + "\n" + address + "\n" + finalUtf_letter, R.drawable.error_icon);
+                                                }
+                                            }
+                                        };
+                                        if (!name.equals("null") && name != null) {
+                                            RequestTask_Bluetooth requestTask_bl = new RequestTask_Bluetooth();
+                                            requestTask_bl.addListener(requestTaskListener_bl);
+                                            requestTask_bl.execute(reqBody);
+                                        }
+                                    }
+                                };
+                                BackgroundService.webRequestExecutor.submit(webReqRunnable_bl_init);
+                                webReqRunnablesList.add(webReqRunnable_bl_init);
+                            }
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        tempt.setPriority(Thread.MIN_PRIORITY);
+        //tempt.start();
+
+        /*Multimap<String, String> map = ArrayListMultimap.create();
+        map.put("ford", "Mustang Mach-E");
+        map.put("ford", "Pantera");
+        Collection<String> values = map.get("ford");
+        List list = new ArrayList(values);
+        Log.d("multimap_0_", String.valueOf(list.get(0)));
+        Log.d("multimap_1_", String.valueOf(list.get(1)));*/
+
+        //HashMap<String, ArrayList<String>> multiValueMap = new HashMap<String, ArrayList<String>>();
+
+        Thread singleThread = new Thread() {
+            @Override
+            public void run() {
+                String url = "https://sont.sytes.net/wifi/allssid.php";
+                AndroidNetworking.get(url)
+                        .setPriority(Priority.IMMEDIATE)
+                        .build()
+                        .getAsString(new StringRequestListener() {
+                            @Override
+                            public void onResponse(String response) {
+                                try {
+                                    String tempres = response;
+                                    tempres = tempres.trim().replaceAll(" +", " ").replaceAll("\n+", "\n");
+                                    int lines = tempres.split("\r\n|\r|\n").length;
+                                    String[] splited = tempres.split("\n");
+                                    Arrays.sort(splited);
+                                    int max = 0;
+                                    int count = 1;
+                                    String word = splited[0];
+                                    String curr = splited[0];
+                                    Log.d("most_freq_", "count: " + splited.length + " count2: " + lines);
+
+                                    for (int i = 1; i < splited.length; i++) {
+                                        if (splited[i].equals(curr)) {
+                                            count++;
+                                        } else {
+                                            count = 1;
+                                            curr = splited[i];
+                                        }
+                                        if (max < count) {
+                                            max = count;
+                                            word = splited[i];
+                                        }
+                                    }
+                                    Log.d("most_freq_", max + " x " + word);
+
+
+                                } catch (Exception e) {
+                                    Log.d("most_freq_", "Error! " + e.getMessage());
+                                    e.printStackTrace();
+                                }
+                            }
+
+                            @Override
+                            public void onError(ANError error) {
+                                //error.printStackTrace();
+                            }
+                        });
+            }
+        };
+
+        singleThread.start();
+
 
     }
 
+    //Here Manifest.permission.READ_PHONE_STATS is needed
+    private String getSubscriberId(Context context, int networkType) {
+        if (ConnectivityManager.TYPE_MOBILE == networkType) {
+            String TODO = "true";
+            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+            int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE);
+
+            return tm.getSubscriberId();
+        }
+        return "";
+    }
 
     boolean handleBluetoothDeviceFound(BluetoothDevice device, boolean isLe) {
-        try {
-            bluetoothDevicesFound.add(new BluetoothDeviceWithLocation(device, CURRENT_LOCATION));
-            //Gson gson = new Gson();
-            //String saveable = gson.toJson(bluetoothDevicesFound);
-            String tosave = "\n_name_" + device.getName() + "_endname__address_" + device.getAddress() + "_endaddress__lat_" + CURRENT_LOCATION.getLatitude() + "_endlat__lng_" + CURRENT_LOCATION.getLongitude() + "_endlng_\n";
-            Runnable saveBl = new Runnable() {
-                @Override
-                public void run() {
-                    writeExternalPublic(getApplicationContext(), "BLsession.txt", tosave, true);
+        boolean isnew = decideIfNew_blue(device);
+        if (isnew) {
+            try {
+                String utf_letter = locationToStringAddress(getApplicationContext(), CURRENT_LOCATION)
+                        .replaceAll("ő", "ö");
+                utf_letter = utf_letter.replaceAll("ű", "ü");
+                utf_letter = utf_letter.replaceAll("Ő", "Ö");
+                utf_letter = utf_letter.replaceAll("Ű", "Ü");
+                String tmpDevName = "null";
+                if (device.getName() == null || device.getName().length() < 1) {
+                    BluetoothManager tmpBluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+                    tmpDevName = tmpBluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
+                } else {
+                    tmpDevName = device.getName();
                 }
-            };
-            saveBl.run();
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
+                final String reqBody =
+                        "?id=0&name=" + tmpDevName +
+                                "&address=" + utf_letter +
+                                "&macaddress=" + device.getAddress() +
+                                "&islowenergy=" + isLe +
+                                "&source=" + "legacy_sonty" +
+                                "&long=" + CURRENT_LOCATION.getLongitude() +
+                                "&lat=" + CURRENT_LOCATION.getLatitude();
+
+                Runnable webReqRunnable_bl = new Runnable() {
+                    @Override
+                    public void run() {
+                        RequestTaskListener requestTaskListener_bl = new RequestTaskListener() {
+                            @Override
+                            public void update(String string) {
+                                if (string != null) {
+                                    if (string.contains("new_device")) {
+                                        Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
+                                    } else {
+                                        Log.d("BL_TEST_", "Got string: " + string);
+                                    }
+                                }
+                            }
+                        };
+                        RequestTask_Bluetooth requestTask_bl = new RequestTask_Bluetooth();
+                        requestTask_bl.addListener(requestTaskListener_bl);
+                        requestTask_bl.execute(reqBody);
+                    }
+                };
+                BackgroundService.webRequestExecutor.submit(webReqRunnable_bl);
+                webReqRunnablesList.add(webReqRunnable_bl);
+
+                bluetoothDevicesFound.add(new BluetoothDeviceWithLocation(device, CURRENT_LOCATION));
+                return true;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        } else {
             return false;
         }
     }
 
-    public static void connectStrongestOpenWifi(Context context,
-                                                List<android.net.wifi.ScanResult> scanResult) {
+    public static void connectStrongestOpenWifi(Context context, List<android.net.wifi.ScanResult> scanResult) {
         try {
             Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
                 @Override
@@ -465,33 +761,22 @@ public class BackgroundService extends Service {
                     onlyOpenAps.add(sr);
                 }
             }
-            android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0);
+            android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0); // strongest
 
-            //Gson gson = new Gson();
             List<String> banneds = new ArrayList<>();
-            /*try {
-                String aps_json_object_loaded = FileIOTools.getSharedPref(context, "bannedlist");
-                banneds = gson.fromJson(aps_json_object_loaded, new TypeToken<List<String>>() {
-                }.getType());
-            } catch (Exception e) {
-                banneds = Arrays.asList("VENDEG", "VENDEG_GARDEN", "Telekom fon", "Telekom Fon WiFi HU",
-                        "Smartwifi", "#EgerFreeWifi", "KMKK", "KMKK_", "EMKK", "MAVSTART",
-                        "Telekom", "uni-Eszterhazy", "Volan");
-
-                String aps_json_object_saved = gson.toJson(banneds);
-                FileIOTools.saveSharedPref(context, "bannedlist", aps_json_object_saved);
-            }*/
-
+            banneds.add("VENDEG");
+            banneds.add("KMKK");
+            banneds.add("helobelokivagy");
             if (onlyOpenAps.size() >= 1) {
                 for (android.net.wifi.ScanResult openApChosed : onlyOpenAps) {
                     String openApChosed_trimmed = openApChosed.SSID;
-                    if (banneds.contains(openApChosed_trimmed)) {
-                        // skip
-                    } else {
+                    if (!banneds.contains(openApChosed_trimmed)) {
                         if (openApChosed.SSID.length() > 3) {
                             strongestOpenAp = openApChosed;
                             break;
                         }
+                    } else {
+                        onlyOpenAps.removeAll(banneds);
                     }
                 }
             }
@@ -499,26 +784,31 @@ public class BackgroundService extends Service {
             WifiConfiguration conf = new WifiConfiguration();
             conf.SSID = "\"" + strongestOpenAp.SSID + "\"";
             conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-
             wifiManager.addNetwork(conf);
             List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
-            for (WifiConfiguration i : list) {
-                if (i.SSID != null && i.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
-                    android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
-                    if (banneds.stream().anyMatch(str -> str.contains(
-                            finalStrongestOpenAp.SSID))) {
-                        /*Toast.makeText(context, "BANNED AP!\n" +
-                                "<" + i.SSID + ">\n" +
-                                "Refusing to connect!", Toast.LENGTH_LONG).show();*/
-
-                        return;
-                        //break;
-                    } else {
-                        //wifiManager.disconnect();
-                        //wifiManager.enableNetwork(i.networkId, true);
-                        //wifiManager.reconnect();
-                        Toast.makeText(context, "Enabled: " + i.SSID, Toast.LENGTH_LONG).show();
-                        break;
+            ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+            //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
+            if (BackgroundService.connectOpen == true) {
+                for (WifiConfiguration aP : list) {
+                    if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
+                        android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
+                        if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
+                            //wifiManager.enableNetwork(aP.networkId, true);
+                            if (!wifiInfo.isConnectedOrConnecting()) {
+                                wifiManager.enableNetwork(aP.networkId, false);
+                            } else {
+                                wifiManager.enableNetwork(aP.networkId, true);
+                            }
+                            //vibrate(context);
+                            Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
+                            //Toast.makeText(context, "Enabled: " + aP.SSID, Toast.LENGTH_LONG).show();
+                            ////wifiManager.disconnect();
+                            ////wifiManager.reconnect();
+                            break;
+                        } else {
+                            //Log.d("OPEN_WIFI_","BANNED FOUND -> " + aP.SSID + " _ " + aP.BSSID + " _ " + aP.FQDN);
+                        }
                     }
                 }
             }
@@ -527,13 +817,14 @@ public class BackgroundService extends Service {
         } catch (Exception e) {
             //Toast.makeText(context, "Error! No open WIFI around\n" + e.getMessage(), Toast.LENGTH_LONG).show();
             //BackgroundService.updateCurrentError("OPEN WIFI ERROR", "No OPEN WiFi found", context);
+            Log.d("OPEN_WIFI_", "ERROR " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public static String getScanResultSecurity(android.net.wifi.ScanResult scanResult) {
         final String cap = scanResult.capabilities;
-        final String[] securityModes = {"WEP", "PSK", "EAP"};
+        final String[] securityModes = {"WEP", "PSK", "EAP", "WPA", "WPA2"};
 
         for (int i = securityModes.length - 1; i >= 0; i--) {
             if (cap.contains(securityModes[i])) {
@@ -624,6 +915,13 @@ public class BackgroundService extends Service {
 
         Random rnd = new Random();
         int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
+        String openButton = "";
+        if (connectOpen) {
+            openButton = "test";
+        } else {
+            openButton = "test";
+        }
+
         Notification notification = new NotificationCompat.Builder(c, "sontylegacy")
                 .setContentTitle(title)
                 .setContentText(text)
@@ -641,7 +939,7 @@ public class BackgroundService extends Service {
                 .setSmallIcon(color_drawable)
                 .setOngoing(false)
                 .setChannelId("sontylegacy")
-                .addAction(R.drawable.servicetransparenticon, "TEST", pi)
+                .addAction(R.drawable.servicetransparenticon, openButton, pi)
                 .build();
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(60, notification);
@@ -809,7 +1107,8 @@ public class BackgroundService extends Service {
                     });
         } catch (Exception e) {
             retryCount++;
-            sendMessage_Telegram(message + "_" + retryCount);
+            if (retryCount < 100)
+                sendMessage_Telegram(message + "_" + retryCount);
             e.printStackTrace();
         }
     }
@@ -850,15 +1149,14 @@ public class BackgroundService extends Service {
 
     public static String convertEncryption(ScanResult result) {
         String enc;
-        if (!result.capabilities.contains("WEP") ||
-                !result.capabilities.contains("WPA")) {
+        if (!result.capabilities.contains("WEP") && !result.capabilities.contains("WPA") && !(result.capabilities.contains("WPA2"))) {
             enc = "NONE";
         } else if (result.capabilities.contains("WEP")) {
             enc = "WEP";
-        } else if (result.capabilities.contains("WPA")) {
-            enc = "WPA";
         } else if (result.capabilities.contains("WPA2")) {
             enc = "WPA2";
+        } else if (result.capabilities.contains("WPA")) {
+            enc = "WPA";
         } else {
             enc = "Not obtainable";
         }
@@ -946,8 +1244,7 @@ public class BackgroundService extends Service {
                     full_str += str;
                 }
                 bytesReceived += full_str.length();
-
-                Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
+                //Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
                 return full_str;
             } catch (Exception e) {
                 error_counter++;
@@ -995,6 +1292,38 @@ public class BackgroundService extends Service {
                     "sont.sytes.net",
                     80,
                     "/wifi/register.php" + uri[0],
+                    false, ""
+            );
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+            for (RequestTaskListener hl : listeners) {
+                hl.update(result);
+            }
+        }
+    }
+
+    public class RequestTask_Bluetooth extends AsyncTask<String, String, String> {
+        private final List<RequestTaskListener> listeners = new ArrayList<RequestTaskListener>();
+
+        public void addListener(RequestTaskListener toAdd) {
+            listeners.add(toAdd);
+        }
+
+        public int count = 0;
+
+        public RequestTask_Bluetooth() {
+            count++;
+        }
+
+        @Override
+        protected String doInBackground(String... uri) {
+            return Live_Http_GET_SingleRecord.executeRequest(
+                    "sont.sytes.net",
+                    80,
+                    "/wifi/register_bl.php" + uri[0],
                     false, ""
             );
         }
@@ -1265,7 +1594,7 @@ public class BackgroundService extends Service {
             }
             return Files.toString(file, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            writeExternalPublic(context, filename, "", true);
+            //writeExternalPublic(context, filename, "", true);
             e.printStackTrace();
             return null;
         }
@@ -1277,9 +1606,9 @@ public class BackgroundService extends Service {
             public void run() {
                 Vibrator v = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    v.vibrate(VibrationEffect.createOneShot(20, -1));
+                    v.vibrate(VibrationEffect.createOneShot(50, -1));
                 } else {
-                    v.vibrate(20);
+                    v.vibrate(50);
                 }
             }
         };
@@ -1302,3 +1631,4 @@ class BluetoothDeviceWithLocation {
         return bluetoothDevice.getAddress().equalsIgnoreCase(((BluetoothDevice) obj).getAddress());
     }
 }
+

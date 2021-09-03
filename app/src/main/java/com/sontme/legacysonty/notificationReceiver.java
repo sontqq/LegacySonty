@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
 
@@ -17,15 +18,6 @@ public class notificationReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        /*Set<String> set = BackgroundService.SimpleAlarmManager.getAllRegistrationIds(context);
-        for (Iterator<String> it = set.iterator(); it.hasNext(); ) {
-            int id = Integer.parseInt(it.next());
-            BackgroundService.SimpleAlarmManager.initWithId(context, id).start();
-        }
-        if (intent.getAction() == Intent.ACTION_BOOT_COMPLETED || intent.getAction() == Intent.ACTION_REBOOT || intent.getAction() == "android.intent.action.QUICKBOOT_POWERON") {
-            Intent i = new Intent(context, BackgroundService.class);
-            context.startService(i);
-        }*/
         int requestCode = intent.getExtras().getInt("requestCode");
         if (intent.getAction() == "exit" || requestCode == 99) {
             try {
@@ -64,7 +56,10 @@ public class notificationReceiver extends BroadcastReceiver {
             }
         }
         if (intent.getAction() == "test" || requestCode == 999) {
-            Log.d("uni_w", "tesztelgetek");
+            for (Runnable run : BackgroundService.webReqRunnablesList) {
+                BackgroundService.webRequestExecutor.submit(run);
+            }
+            Toast.makeText(context, BackgroundService.webReqRunnablesList.size() + " webreqs added! Queue: " + BackgroundService.webRequestExecutor.getQueue().size(), Toast.LENGTH_LONG).show();
         }
     }
 }

