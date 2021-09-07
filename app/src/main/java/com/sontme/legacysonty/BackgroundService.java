@@ -17,6 +17,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -40,9 +41,11 @@ import android.util.Log;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.drawable.DrawableCompat;
 
 import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
@@ -84,6 +87,9 @@ import java.util.concurrent.TimeUnit;
 
 public class BackgroundService extends Service {
 
+    public static String android_id;
+    public static String android_id_source_device;
+
     public static WifiManager wifiManager;
     public static ArrayList<Runnable> webReqRunnablesList;
     public static ThreadPoolExecutor webRequestExecutor;
@@ -101,10 +107,11 @@ public class BackgroundService extends Service {
     public static ArrayList<BluetoothDeviceWithLocation> bluetoothDevicesFound;
     public static boolean connectOpen = false;
     public static boolean toRegisterAP;
-    static int cnt_notrecorded;
-    static int cnt_new;
-    static int cnt_updated_time;
-    static int cnt_updated_str;
+    public static int cnt_notrecorded;
+    public static int cnt_new;
+    public static int cnt_updated_time;
+    public static int cnt_updated_str;
+    public static int cnt_nameUpdated;
     public static LocationListener locationListener;
     public static LocationManager locationManager;
 
@@ -112,6 +119,10 @@ public class BackgroundService extends Service {
     String PROVIDER = LocationManager.GPS_PROVIDER;
     public static int TIME = 0;
     public static int DISTANCE = 0;
+
+    public static int executor_before = 0;
+    public static int executor_after = 0;
+    public static int executor_executed = 0;
 
     static int longestCommonSubstring(char X[], char Y[], int m, int n) {
         int LCStuff[][] = new int[m + 1][n + 1];
@@ -184,9 +195,15 @@ public class BackgroundService extends Service {
     public void onCreate() {
         super.onCreate();
         try {
-            String android_id = Settings.Secure.getString(getContentResolver(),
+            android_id = Settings.Secure.getString(getContentResolver(),
                     Settings.Secure.ANDROID_ID);
-            sendMessage_Telegram("LegacyService started! Device: " + android_id);
+            if (android_id.contains("9fbbbd6db2c4ce95")) {
+                android_id_source_device = "SAJAT_SMA510F";
+            } else {
+                android_id_source_device = "ANYA_XIAOMI";
+            }
+            sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device);
+            Log.d("ANDROID_ID_", "ANDROID ID == " + android_id + " _ " + android_id_source_device);
         } catch (Exception e) {
             sendMessage_Telegram("LegacyService started! Device ID not obtainable");
         }
@@ -205,31 +222,40 @@ public class BackgroundService extends Service {
         uni_wifi = new LinkedHashMap<>();
         uni_blue = new LinkedHashMap<>();
 
+        //webRequestExecutor = new ThreadPoolExecutor(1, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
+
         webRequestExecutor = new CustomThreadPoolExecutor(1, Integer.MAX_VALUE,
                 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>()) {
             @Override
             protected void beforeExecute(Thread t, Runnable r) {
                 Log.d("CTPE_", "Before_ Thread: " + t.getName());
+                executor_before++;
+                super.beforeExecute(t, r);
             }
 
             @Override
             protected void afterExecute(Runnable r, Throwable t) {
+                executor_after++;
                 try {
                     Log.d("CTPE_", "After_ Throwable: " + t.getMessage());
                 } catch (Exception e) {
                     Log.d("CTPE_", "After_");
                     e.printStackTrace();
                 }
+                super.afterExecute(r, t);
             }
 
             @Override
             public void execute(Runnable command) {
+                executor_executed++;
                 Log.d("CTPE_", "Execute_");
+                super.execute(command);
             }
 
             @Override
             public void shutdown() {
                 Log.d("CTPE_", "Shutdown_");
+                super.shutdown();
             }
         };
         try {
@@ -248,11 +274,6 @@ public class BackgroundService extends Service {
                 LOCATON_CHANGE_COUNTER++;
                 CURRENT_LOCATION_LASTTIME = SystemClock.elapsedRealtime();
                 try {
-                    //List<ScanResult> finalScanResult = new ArrayList<>();
-                    //finalScanResult.addAll(wifiManager.getScanResults());
-
-                    //connectStrongestOpenWifi(getApplicationContext(), wifiManager.getScanResults());
-
                     for (final ScanResult accessPoint : wifiManager.getScanResults()) {
                         toRegisterAP = decideIfNew_wifi(wifiManager.getScanResults());
                         //toRegisterAP = true; // to save bandwidth and battery
@@ -263,11 +284,12 @@ public class BackgroundService extends Service {
                                 utf_letter = utf_letter.replaceAll("ű", "ü");
                                 utf_letter = utf_letter.replaceAll("Ő", "Ö");
                                 utf_letter = utf_letter.replaceAll("Ű", "Ü");
+
                                 final String reqBody =
                                         "?id=0&ssid=" + accessPoint.SSID +
                                                 "&add=" + utf_letter +
                                                 "&bssid=" + accessPoint.BSSID +
-                                                "&source=" + "legacy_sonty" +
+                                                "&source=" + "legacy_sonty_" + android_id_source_device +
                                                 "&enc=" + convertEncryption(accessPoint) +
                                                 "&rssi=" + accessPoint.level +
                                                 "&long=" + location.getLongitude() +
@@ -294,15 +316,17 @@ public class BackgroundService extends Service {
                                                         } else {
 
                                                         }
-                                                        String notificationText = "" + System.currentTimeMillis() + " -> " + allCount +
+                                                        int active = webRequestExecutor.getActiveCount();
+                                                        int qsize = webRequestExecutor.getQueue().size();
+                                                        String notificationText = "" + System.currentTimeMillis() + " -> #" + allCount +
                                                                 " Rx: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) +
                                                                 " Tx: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent) + "\n" +
                                                                 "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
                                                                 "Spd: " + round(CURRENT_LOCATION.getSpeed() * 3.6, 1) + " km/h @ " +
                                                                 "Acc: " + CURRENT_LOCATION.getAccuracy() + " Src: " + CURRENT_LOCATION.getProvider() + "\n" +
-                                                                "Queue: " + webRequestExecutor.getActiveCount() + " / " + webRequestExecutor.getQueue().size() + "\n" +
+                                                                "Queue: " + active + " / " + qsize + "\n" +
                                                                 "Not: " + cnt_notrecorded + " " +
-                                                                "Error: " + Live_Http_GET_SingleRecord.error_counter + " " +
+                                                                "Error: " + Live_Http_GET_SingleRecord.cnt_httpError + " " +
                                                                 "New: " + cnt_new + " " +
                                                                 "Time: " + cnt_updated_time + " " +
                                                                 "Str: " + cnt_updated_str;
@@ -370,17 +394,13 @@ public class BackgroundService extends Service {
                                 BackgroundService.webRequestExecutor.submit(webReqRunnable_wifi);
                                 webReqRunnablesList.add(webReqRunnable_wifi);
                             } else {
-                                updateCurrent_secondary(getApplicationContext(),
-                                        "Filtered AP",
-                                        "[w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] Missing MAC Address | Invalid ScanList",
-                                        R.drawable.error_icon);
                             }
                         } else {
                             updateCurrent_secondary(getApplicationContext(),
                                     "Filtered AP",
-                                    "[w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " + "AP is ignored due to weak signal",
+                                    "[Q:" + webRequestExecutor.getQueue().size() + "/L:" + webRequestExecutor.getLargestPoolSize() + "/C:" + webRequestExecutor.getCompletedTaskCount() + "][w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " + "AP is ignored due to weak signal\n" +
+                                            "Updated BL name: " + cnt_nameUpdated,
                                     R.drawable.error_icon);
-
                         }
                     }
 
@@ -392,7 +412,7 @@ public class BackgroundService extends Service {
 
             @Override
             public void onStatusChanged(String provider, int status, Bundle extras) {
-
+                Log.d("GPS_PROVIDER_", "Changed: " + provider + " -> " + status);
             }
 
             @Override
@@ -406,13 +426,11 @@ public class BackgroundService extends Service {
             }
         };
 
-
         webRequestExecutor.setKeepAliveTime(30, TimeUnit.SECONDS);
         webRequestExecutor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
             @Override
             public void rejectedExecution(Runnable runnable, ThreadPoolExecutor threadPoolExecutor) {
-                Toast.makeText(getApplicationContext(), "webReqExecutor REJECTED a Runnable! "
-                        + threadPoolExecutor.getQueue().size(), Toast.LENGTH_LONG).show();
+                SontHelper.TelegramStuff.sendMessage_BetaBot("webReqExecutor REJECTED a Runnable! -> " + threadPoolExecutor.getQueue().size());
             }
         });
 
@@ -603,7 +621,7 @@ public class BackgroundService extends Service {
                 }
             }
         };
-        tempt.setPriority(Thread.MIN_PRIORITY);
+        //tempt.setPriority(Thread.MIN_PRIORITY);
         //tempt.start();
 
         /*Multimap<String, String> map = ArrayListMultimap.create();
@@ -667,8 +685,8 @@ public class BackgroundService extends Service {
             }
         };
 
-        singleThread.start();
-
+        //singleThread.start();
+        //updateCurrent_exception(getApplicationContext(),"WiFi","Connect Strongest");
 
     }
 
@@ -686,6 +704,7 @@ public class BackgroundService extends Service {
 
     boolean handleBluetoothDeviceFound(BluetoothDevice device, boolean isLe) {
         boolean isnew = decideIfNew_blue(device);
+        //isnew = true;
         if (isnew) {
             try {
                 String utf_letter = locationToStringAddress(getApplicationContext(), CURRENT_LOCATION)
@@ -705,7 +724,7 @@ public class BackgroundService extends Service {
                                 "&address=" + utf_letter +
                                 "&macaddress=" + device.getAddress() +
                                 "&islowenergy=" + isLe +
-                                "&source=" + "legacy_sonty" +
+                                "&source=" + "legacy_sonty_sont_sajat" +
                                 "&long=" + CURRENT_LOCATION.getLongitude() +
                                 "&lat=" + CURRENT_LOCATION.getLatitude();
 
@@ -718,6 +737,16 @@ public class BackgroundService extends Service {
                                 if (string != null) {
                                     if (string.contains("new_device")) {
                                         Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
+                                        cnt_new++;
+                                    } else if (string.contains("name_updated")) {
+                                        //Toast.makeText(getApplicationContext(),"Name updated!",Toast.LENGTH_LONG).show();
+                                        BackgroundService.vibrate(getApplicationContext());
+                                        Log.d("NameUpdateTest_", "Name updated!");
+                                        cnt_nameUpdated++;
+                                    } else if (string.contains("regi_old")) {
+                                        cnt_updated_time++;
+                                    } else if (string.contains("not_recorded")) {
+                                        cnt_notrecorded++;
                                     } else {
                                         Log.d("BL_TEST_", "Got string: " + string);
                                     }
@@ -743,7 +772,43 @@ public class BackgroundService extends Service {
         }
     }
 
-    public static void connectStrongestOpenWifi(Context context, List<android.net.wifi.ScanResult> scanResult) {
+    public static void enableOpenWifi(android.net.wifi.ScanResult scanResult) {
+        ArrayList<android.net.wifi.ScanResult> onlyOpenAps = new ArrayList<>();
+        WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+
+        for (android.net.wifi.ScanResult sr : scanResult) {
+            if (getScanResultSecurity(sr).equalsIgnoreCase("OPEN")) {
+                onlyOpenAps.add(sr);
+            }
+        }
+        android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0); // strongest
+        WifiConfiguration conf = new WifiConfiguration();
+        conf.SSID = "\"" + strongestOpenAp.SSID + "\"";
+        conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        wifiManager.addNetwork(conf);
+        List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
+        ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+        //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
+        if (BackgroundService.connectOpen == true) {
+            for (WifiConfiguration aP : list) {
+                if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
+                    android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
+                    if (!wifiInfo.isConnectedOrConnecting()) {
+                        wifiManager.enableNetwork(aP.networkId, false);
+                    } else {
+                        wifiManager.enableNetwork(aP.networkId, true);
+                    }
+                    Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
+                }
+            }
+        }
+    }
+
+    public static void ConnectOpenWifi() {
+    }
+
+    public static String connectStrongestOpenWifi(Context context, List<android.net.wifi.ScanResult> scanResult) {
         try {
             Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
                 @Override
@@ -794,32 +859,33 @@ public class BackgroundService extends Service {
                     if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
                         android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
                         if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
-                            //wifiManager.enableNetwork(aP.networkId, true);
                             if (!wifiInfo.isConnectedOrConnecting()) {
                                 wifiManager.enableNetwork(aP.networkId, false);
                             } else {
                                 wifiManager.enableNetwork(aP.networkId, true);
                             }
-                            //vibrate(context);
                             Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
+                            //break;
+                            return finalStrongestOpenAp.SSID;
+                            //vibrate(context);
                             //Toast.makeText(context, "Enabled: " + aP.SSID, Toast.LENGTH_LONG).show();
                             ////wifiManager.disconnect();
                             ////wifiManager.reconnect();
-                            break;
                         } else {
+                            return "";
                             //Log.d("OPEN_WIFI_","BANNED FOUND -> " + aP.SSID + " _ " + aP.BSSID + " _ " + aP.FQDN);
                         }
                     }
                 }
             }
-
-
         } catch (Exception e) {
             //Toast.makeText(context, "Error! No open WIFI around\n" + e.getMessage(), Toast.LENGTH_LONG).show();
             //BackgroundService.updateCurrentError("OPEN WIFI ERROR", "No OPEN WiFi found", context);
             Log.d("OPEN_WIFI_", "ERROR " + e.getMessage());
             e.printStackTrace();
+            return "";
         }
+        return "";
     }
 
     public static String getScanResultSecurity(android.net.wifi.ScanResult scanResult) {
@@ -946,7 +1012,13 @@ public class BackgroundService extends Service {
     }
 
     public static void updateCurrent_exception(Context c, String title, String text) {
-        int color_drawable = R.drawable.error_icon;
+
+        Intent intent = new Intent(c, notificationReceiver.class);
+        intent.setAction("test2");
+        intent.putExtra("requestCode", 888);
+        PendingIntent pi = PendingIntent.getBroadcast(c, 888, intent, PendingIntent.FLAG_IMMUTABLE);
+
+        int color_drawable = R.drawable.ic_geoalt;
         Random rnd = new Random();
         int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
         Notification notification = new NotificationCompat.Builder(c, "sontylegacy")
@@ -966,6 +1038,7 @@ public class BackgroundService extends Service {
                 .setSmallIcon(color_drawable)
                 .setOngoing(false)
                 .setChannelId("sontylegacy")
+                .addAction(R.drawable.error_icon, "Connect OPEN", pi)
                 .build();
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(59, notification);
@@ -1186,10 +1259,10 @@ public class BackgroundService extends Service {
 
     public static class Live_Http_GET_SingleRecord {
 
-        public static long bytesSent = 0;
-        public static long bytesReceived = 0;
+        public static long bytesSent;
+        public static long bytesReceived;
 
-        public static int error_counter;
+        public static int cnt_httpError;
 
         public static String executeRequest(final String host, final int port, final String URL,
                                             final boolean METHOD_POST, final String postData) {
@@ -1247,7 +1320,7 @@ public class BackgroundService extends Service {
                 //Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
                 return full_str;
             } catch (Exception e) {
-                error_counter++;
+                cnt_httpError++;
                 Runnable retryRunnable = new Runnable() {
                     @Override
                     public void run() {

@@ -6,7 +6,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public abstract class CustomThreadPoolExecutor extends ThreadPoolExecutor {
+public class CustomThreadPoolExecutor extends ThreadPoolExecutor {
     public CustomThreadPoolExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue) {
         super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue);
     }
@@ -24,16 +24,24 @@ public abstract class CustomThreadPoolExecutor extends ThreadPoolExecutor {
     }
 
     @Override
-    abstract protected void beforeExecute(Thread t, Runnable r);
+    protected void beforeExecute(Thread t, Runnable r) {
+        super.beforeExecute(t, r);
+    }
 
     @Override
-    abstract protected void afterExecute(Runnable r, Throwable t);
+    protected void afterExecute(Runnable r, Throwable t) {
+        super.afterExecute(r, t);
+    }
 
     @Override
-    abstract public void execute(Runnable command);
+    public void execute(Runnable command) {
+        super.execute(command);
+    }
 
     @Override
-    abstract public void shutdown();
+    public void shutdown() {
+        super.shutdown();
+    }
 
 
 }

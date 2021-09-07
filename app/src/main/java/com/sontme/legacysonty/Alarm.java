@@ -1,20 +1,50 @@
 package com.sontme.legacysonty;
 
 import static android.content.Context.ALARM_SERVICE;
+import static android.content.Context.BATTERY_SERVICE;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.BatteryManager;
 import android.util.Log;
-
-import java.util.Iterator;
-import java.util.Set;
 
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
+        if (BackgroundService.android_id_source_device.equals("ANYA_XIAOMI")) {
+            try {
+                BatteryManager bm = (BatteryManager) context.getSystemService(BATTERY_SERVICE);
+                int batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                String keepaliveResponse =
+                        BackgroundService.Live_Http_GET_SingleRecord.executeRequest(
+                                "sont.sytes.net", 80, "keepalive.php?" +
+                                        BackgroundService.android_id_source_device + "_" +
+                                        BackgroundService.locationToStringAddress(context, BackgroundService.CURRENT_LOCATION).trim() + "_bat:" + batLevel, true,
+                                "source=" + BackgroundService.android_id_source_device
+                        );
+                Log.d("KEEP_ALIVE_", "RESPONSE=" + keepaliveResponse);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } else {
+            try {
+                BatteryManager bm = (BatteryManager) context.getSystemService(BATTERY_SERVICE);
+                int batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                String keepaliveResponse =
+                        BackgroundService.Live_Http_GET_SingleRecord.executeRequest(
+                                "sont.sytes.net", 80, "keepalive.php?" +
+                                        BackgroundService.android_id_source_device + "_" +
+                                        BackgroundService.locationToStringAddress(context, BackgroundService.CURRENT_LOCATION).trim() + "_bat:" + batLevel, true,
+                                "source=" + BackgroundService.android_id_source_device
+                        );
+                Log.d("KEEP_ALIVE_", "RESPONSE=" + keepaliveResponse);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
         Intent serviceIntent = new Intent(context, BackgroundService.class);
         context.startService(serviceIntent);
         Log.d("ALARM_", "RAN!");

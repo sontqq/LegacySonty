@@ -2,9 +2,11 @@ package com.sontme.legacysonty;
 
 import android.Manifest;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.app.AppOpsManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageInfo;
@@ -23,6 +25,8 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -253,18 +257,20 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                         startService(i);
                         int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
                         int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
+                        int executorServiceMax = BackgroundService.webRequestExecutor.getLargestPoolSize();
                         String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
-                                "Executor Pool Queue: " + executorServiceQueueSize + "\n" +
+                                "Executor Pool Queue: " + executorServiceQueueSize + "[" + executorServiceMax + "]" + "\n" +
                                 "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
-                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n" +
-                                "Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length());
+                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n"
+                                /*"Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length())*/;
                         txt.setText(threadString);
                         String stats = "";
 
                         stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
-                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.error_counter + " " +
+                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
                                 "New: " + BackgroundService.cnt_new + " " +
                                 "Time: " + BackgroundService.cnt_updated_time + " " +
+                                "BLName: " + BackgroundService.cnt_nameUpdated + " " +
                                 "Str: " + BackgroundService.cnt_updated_str;
 
                         statsTextview.setText(stats);
@@ -282,9 +288,10 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                         String stats = "";
 
                         stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
-                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.error_counter + " " +
+                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
                                 "New: " + BackgroundService.cnt_new + " " +
                                 "Time: " + BackgroundService.cnt_updated_time + " " +
+                                "BLName: " + BackgroundService.cnt_nameUpdated + " " +
                                 "Str: " + BackgroundService.cnt_updated_str;
 
                         statsTextview.setText(stats);
@@ -307,6 +314,71 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         } else {
             //TODO
         }
+
+        Button quebtn = findViewById(R.id.quebutton);
+        Button wifibtn = findViewById(R.id.openwifibutton);
+        wifibtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                // alert dialog to decide if connect or not
+                String ssid = BackgroundService.connectStrongestOpenWifi(
+                        getApplicationContext(),
+                        BackgroundService.wifiManager.getScanResults()
+                );
+                if (ssid.length() > 1) {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+                    builder.setTitle("Want to connect?");
+                    builder.setMessage("Connect to " + ssid + "?");
+                    builder.setPositiveButton("YES", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.dismiss();
+                        }
+                    });
+                    builder.setNegativeButton("NO", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            dialog.dismiss();
+                        }
+                    });
+                    AlertDialog alert = builder.create();
+                    alert.show();
+                } else {
+                    Toast.makeText(getApplicationContext(), "Nothing to connect! #" + BackgroundService.wifiManager.getScanResults().size(), Toast.LENGTH_SHORT).show();
+                }
+
+
+            }
+        });
+        quebtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Thread thread = new Thread() {
+                    @Override
+                    public void run() {
+                        for (Runnable run : BackgroundService.webReqRunnablesList) {
+                            BackgroundService.webRequestExecutor.submit(run);
+                        }
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                Toast.makeText(getApplicationContext(),
+                                        BackgroundService.webReqRunnablesList.size() +
+                                                " webreqs added! Queue: " + BackgroundService.webRequestExecutor.getQueue().size() +
+                                                "\nExecuted: " + BackgroundService.executor_executed +
+                                                " After: " + BackgroundService.executor_after +
+                                                " Before: " + BackgroundService.executor_before,
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        });
+
+                        super.run();
+                    }
+                };
+                thread.start();
+
+
+            }
+        });
+
     }
 
     @Override

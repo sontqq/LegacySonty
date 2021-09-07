@@ -16,6 +16,20 @@
         android:paddingBottom="10dp"
         android:progressDrawable="@drawable/seekbarstyle" />
 
+    <Button
+        android:id="@+id/quebutton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="Add Queue" />
+
+    <Button
+        android:id="@+id/openwifibutton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="Connect Strongest OPEN WiFi" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

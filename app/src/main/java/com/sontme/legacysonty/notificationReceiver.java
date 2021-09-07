@@ -56,10 +56,15 @@ public class notificationReceiver extends BroadcastReceiver {
             }
         }
         if (intent.getAction() == "test" || requestCode == 999) {
+            BackgroundService.updateCurrent_exception(context, "WiFi", "Connect Strongest");
             for (Runnable run : BackgroundService.webReqRunnablesList) {
                 BackgroundService.webRequestExecutor.submit(run);
             }
             Toast.makeText(context, BackgroundService.webReqRunnablesList.size() + " webreqs added! Queue: " + BackgroundService.webRequestExecutor.getQueue().size(), Toast.LENGTH_LONG).show();
+        }
+        if (intent.getAction() == "test2" || requestCode == 888) {
+            //String selected = BackgroundService.connectStrongestOpenWifi(context,BackgroundService.wifiManager.getScanResults());
+            //Toast.makeText(context, "Connecting Strongest Open WiFi: [" + selected +"]", Toast.LENGTH_LONG).show();
         }
     }
 }
