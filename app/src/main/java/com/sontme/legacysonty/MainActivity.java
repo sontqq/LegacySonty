@@ -4,6 +4,8 @@ import android.Manifest;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.AppOpsManager;
+import android.app.Dialog;
+import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -17,6 +19,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.location.GpsStatus;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.net.wifi.ScanResult;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -24,6 +27,7 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.Html;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -35,8 +39,18 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.androidnetworking.AndroidNetworking;
+import com.androidnetworking.common.Priority;
+import com.androidnetworking.error.ANError;
+import com.androidnetworking.interfaces.StringRequestListener;
+
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Scanner;
 import java.util.stream.Stream;
 
 public class MainActivity extends AppCompatActivity implements GpsStatus.Listener {
@@ -44,9 +58,14 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     TextView statsTextview;
     SeekBar seekBar;
     TextView seekval;
-
+    public TextView alertText;
     static Handler statsHandler;
     static Runnable statsRunnable;
+
+    Handler handler_no;
+    Handler handler_yes;
+    Runnable runnable_no;
+    Runnable runnable_yes;
 
     LocationManager locationManager;
 
@@ -129,6 +148,39 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
         };
         managePermissions();
+
+        Runnable runnable_no = new Runnable() {
+            @Override
+            public void run() {
+                alertText.setText(Html.fromHtml(
+                        BackgroundService.locationToStringAddress(getApplicationContext(), BackgroundService.CURRENT_LOCATION),
+                        Html.FROM_HTML_MODE_LEGACY));
+
+                handler_no.postDelayed(this, 1000);
+            }
+        };
+
+        Runnable runnable_yes = new Runnable() {
+            @Override
+            public void run() {
+                List<ScanResult> temp = BackgroundService.wifiManager.getScanResults();
+                Collections.sort(temp, new Comparator<ScanResult>() {
+                    @Override
+                    public int compare(android.net.wifi.ScanResult o1, android.net.wifi.ScanResult o2) {
+                        return Integer.compare(o1.level, o2.level);
+                    }
+                });
+                Collections.reverse(temp);
+                String msg = "";
+                for (ScanResult sr : temp) {
+                    msg = msg + "<b>" + sr.SSID + "</b> | " + sr.level + " | " + BackgroundService.getScanResultSecurity(sr) + "<br>";
+                }
+                alertText.setText(Html.fromHtml(msg, Html.FROM_HTML_MODE_LEGACY));
+
+                handler_yes.postDelayed(this, 1000);
+            }
+        };
+
         PackageInfo info = null;
         try {
             info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(), PackageManager.GET_PERMISSIONS);
@@ -231,8 +283,11 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
 
             Intent i = new Intent(MainActivity.this, BackgroundService.class);
             startService(i);
-            bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
-
+            try {
+                bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             final Handler locationRequestHandler = new Handler();
             locationRequestHandler.postDelayed(new Runnable() {
                 public void run() {
@@ -315,37 +370,233 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             //TODO
         }
 
+        Button exitbtn = findViewById(R.id.exitbutton);
         Button quebtn = findViewById(R.id.quebutton);
         Button wifibtn = findViewById(R.id.openwifibutton);
+        Button blfileburstbtn = findViewById(R.id.blfileburst);
+
+        exitbtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                NotificationManager nm = getSystemService(NotificationManager.class);
+                nm.cancelAll();
+                stopService(new Intent(getApplicationContext(), BackgroundService.class));
+                System.exit(2);
+                System.exit(0);
+                System.exit(1);
+                finish();
+            }
+        });
+
+        blfileburstbtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Thread mostfreq_ssid = new Thread() {
+                    @Override
+                    public void run() {
+                        String url = "https://sont.sytes.net/wifi/allssid.php";
+                        AndroidNetworking.get(url)
+                                .setPriority(Priority.IMMEDIATE)
+                                .build()
+                                .getAsString(new StringRequestListener() {
+                                    @Override
+                                    public void onResponse(String response) {
+                                        try {
+                                            String tempres = response;
+                                            tempres = tempres.trim().replaceAll(" +", " ").replaceAll("\n+", "\n");
+                                            int lines = tempres.split("\r\n|\r|\n").length;
+                                            String[] splited = tempres.split("\n");
+                                            Arrays.sort(splited);
+                                            int max = 0;
+                                            int count = 1;
+                                            String word = splited[0];
+                                            String curr = splited[0];
+                                            Log.d("most_freq_", "count: " + splited.length + " count2: " + lines);
+
+                                            for (int i = 1; i < splited.length; i++) {
+                                                if (splited[i].equals(curr)) {
+                                                    count++;
+                                                } else {
+                                                    count = 1;
+                                                    curr = splited[i];
+                                                }
+                                                if (max < count) {
+                                                    max = count;
+                                                    word = splited[i];
+                                                }
+                                            }
+                                            Log.d("most_freq_", max + " x " + word);
+
+
+                                        } catch (Exception e) {
+                                            Log.d("most_freq_", "Error! " + e.getMessage());
+                                            e.printStackTrace();
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onError(ANError error) {
+                                        //error.printStackTrace();
+                                    }
+                                });
+                    }
+                };
+                //mostfreq_ssid.start();
+
+                Thread tempt = new Thread() {
+                    @Override
+                    public void run() {
+                        File path = getExternalFilesDir(null);
+                        File file = new File(path, "BLsession.txt");
+                        try {
+                            Scanner sc = new Scanner(file, "UTF-8");
+                            ArrayList<String> lines_arr = new ArrayList<String>();
+                            Collections.shuffle(lines_arr);
+                            Log.d("BL_FILE_", "Started!");
+                            int namenull = 0;
+                            int namenotnull = 0;
+                            while (sc.hasNextLine()) {
+                                String l = sc.nextLine();
+                                if (!l.contains("|  |  |")) {
+                                    lines_arr.add(sc.nextLine());
+                                }
+                            }
+
+                            sc.close();
+                            for (int i = lines_arr.size() - 1; i >= 0; i--) {
+                                double percentage = (double) 100 - ((double) i / (double) lines_arr.size()) * (double) 100;
+                                //Log.d("BL_FILE_","Loop " + i+"/"+lines_arr.size() + " -> " + percentage+"%");
+                                String name = BackgroundService.getStringbetweenStrings(lines_arr.get(i), "_name_", "_endname_");
+                                String address = BackgroundService.getStringbetweenStrings(lines_arr.get(i), "_address_", "_endaddress_");
+                                String latitude = BackgroundService.getStringbetweenStrings(lines_arr.get(i), "_lat_", "_endlat_");
+                                String longitude = BackgroundService.getStringbetweenStrings(lines_arr.get(i), "_lng_", "_endlng_");
+                                if (name.contains("null")) {
+                                    namenull++;
+                                    //Log.d("BL_FILE_","null: "+namenull);
+                                    continue;
+                                } else {
+                                    namenotnull++;
+                                    //Log.d("BL_FILE_","not: " + namenotnull);
+                                }
+
+                                if (!lines_arr.get(i).contains("|  |  |")) {
+                                    String utf_letter = BackgroundService.locationToStringAddress(getApplicationContext(), BackgroundService.CURRENT_LOCATION)
+                                            .replaceAll("ő", "ö");
+                                    utf_letter = utf_letter.replaceAll("ű", "ü");
+                                    utf_letter = utf_letter.replaceAll("Ő", "Ö");
+                                    utf_letter = utf_letter.replaceAll("Ű", "Ü");
+                                    if (!utf_letter.contains("Egri") && !utf_letter.contains("25-") && !utf_letter.contains("Unknown")) {
+                                        //Log.d("BL_FILE_", "siker: " + utf_letter);
+                                        final String reqBody =
+                                                "?id=0&name=" + name +
+                                                        "&address=" + utf_letter +
+                                                        "&macaddress=" + address +
+                                                        "&islowenergy=" + "unknown" +
+                                                        "&source=" + "legacy_sonty" +
+                                                        "&long=" + longitude +
+                                                        "&lat=" + latitude +
+                                                        "&progress=" + lines_arr.size() + "_" + i + "_" + percentage;
+                                        String finalUtf_letter = utf_letter;
+                                        Runnable webReqRunnable_bl_init = new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                BackgroundService.RequestTaskListener requestTaskListener_bl = new BackgroundService.RequestTaskListener() {
+                                                    @Override
+                                                    public void update(String string) {
+                                                        if (string != null) {
+                                                            if (string.contains("new_device")) {
+                                                                Log.d("BL_TEST_", "NEW DEVICE FOUND: " + name + " -> " + address);
+                                                                BackgroundService.cnt_new++;
+                                                                BackgroundService.cnt_new_bl++;
+                                                            } else if (string.contains("Not updated")) {
+                                                                Log.d("BL_TEST_", "Not updated");
+                                                                BackgroundService.cnt_notrecorded++;
+                                                                BackgroundService.cnt_notrecorded_bl++;
+                                                            } else if (string.contains("not_recorded")) {
+                                                                BackgroundService.cnt_notrecorded++;
+                                                                BackgroundService.cnt_notrecorded_bl++;
+                                                            } else if (string.contains("regi_old")) {
+                                                                BackgroundService.cnt_updated_time++;
+                                                                BackgroundService.cnt_updated_time_bl++;
+                                                            }
+                                                            BackgroundService.updateCurrent_secondary(getApplicationContext(),
+                                                                    "Bluetooth ANSWER",
+                                                                    name + "\n" + address + "\n" + finalUtf_letter, R.drawable.error_icon);
+                                                        }
+                                                    }
+                                                };
+                                                if (!name.equals("null") && name != null) {
+                                                    BackgroundService.RequestTask_Bluetooth requestTask_bl = new BackgroundService.RequestTask_Bluetooth();
+                                                    requestTask_bl.addListener(requestTaskListener_bl);
+                                                    requestTask_bl.execute(reqBody);
+                                                }
+                                            }
+                                        };
+                                        BackgroundService.webRequestExecutor.submit(webReqRunnable_bl_init);
+                                        BackgroundService.webReqRunnablesList.add(webReqRunnable_bl_init);
+                                    }
+                                }
+                            }
+                            Log.d("BL_FILE_", "Loop ended");
+                        } catch (Exception e) {
+                            Log.d("BL_FILE_", "Error: " + e.getMessage());
+                            runOnUiThread(new Runnable() {
+                                public void run() {
+                                    Toast.makeText(getApplicationContext(),
+                                            "Exception happened: " + e.getMessage(),
+                                            Toast.LENGTH_LONG).show();
+                                }
+                            });
+                            e.printStackTrace();
+                        }
+                    }
+                };
+                //tempt.setPriority(Thread.MIN_PRIORITY);
+                tempt.start();
+            }
+        });
+
         wifibtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                // alert dialog to decide if connect or not
-                String ssid = BackgroundService.connectStrongestOpenWifi(
-                        getApplicationContext(),
-                        BackgroundService.wifiManager.getScanResults()
-                );
-                if (ssid.length() > 1) {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-                    builder.setTitle("Want to connect?");
-                    builder.setMessage("Connect to " + ssid + "?");
-                    builder.setPositiveButton("YES", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface dialog, int which) {
-                            dialog.dismiss();
-                        }
-                    });
-                    builder.setNegativeButton("NO", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            dialog.dismiss();
-                        }
-                    });
-                    AlertDialog alert = builder.create();
-                    alert.show();
-                } else {
-                    Toast.makeText(getApplicationContext(), "Nothing to connect! #" + BackgroundService.wifiManager.getScanResults().size(), Toast.LENGTH_SHORT).show();
+                try {
+                    ArrayList<ScanResult> openap = BackgroundService.getStrongestOpenAp(
+                            BackgroundService.wifiManager.getScanResults()
+                    );
+                    String message = "Possible: " + openap.size() + "<br><br>";
+                    for (ScanResult sr : openap) {
+                        message = message + "<b>" + sr.SSID + "</b> | <i>" + sr.BSSID + "</i> | " + sr.level + "<br>";
+                    }
+                    message += "<br><b>Selected: " + openap.get(openap.size() - 1).SSID + " -> " + openap.get(openap.size() - 1).level + "</b>";
+                    if (openap.get(openap.size() - 1).BSSID.length() > 1) {
+                        AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+                        builder.setTitle("Do you want to connect?");
+                        builder.setMessage(Html.fromHtml(
+                                message, Html.FROM_HTML_MODE_LEGACY));
+                        builder.setPositiveButton("YES",
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        BackgroundService.enableApToConnect(
+                                                openap.get(openap.size() - 1),
+                                                true);
+                                        dialog.dismiss();
+                                    }
+                                });
+                        builder.setNegativeButton("NO",
+                                new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        dialog.dismiss();
+                                    }
+                                });
+                        AlertDialog alert = builder.create();
+                        alert.show();
+                    } else {
+                        Toast.makeText(getApplicationContext(), "Nothing to connect! #" + BackgroundService.wifiManager.getScanResults().size(), Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
-
 
             }
         });
@@ -369,17 +620,54 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                         Toast.LENGTH_LONG).show();
                             }
                         });
-
                         super.run();
                     }
                 };
                 thread.start();
 
+                Dialog dialog = new Dialog(MainActivity.this);
+                dialog.setContentView(R.layout.custom_alert_dialog);
+                alertText = (TextView) dialog.findViewById(R.id.alerttxt);
+                Button btnYes = dialog.findViewById(R.id.yes);
+                Button btnNo = dialog.findViewById(R.id.no);
+                Button btnClose = dialog.findViewById(R.id.closebtn);
+                dialog.setCancelable(false);
+                alertText.setText("asd");
 
+                btnYes.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        handler_yes = new Handler();
+                        handler_yes.postDelayed(runnable_yes, 1000);
+                    }
+                });
+                btnNo.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        handler_no = new Handler();
+                        handler_no.postDelayed(runnable_no, 1000);
+                    }
+                });
+                btnClose.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View view) {
+                        try {
+                            handler_no.removeCallbacks(runnable_no);
+                            handler_yes.removeCallbacks(runnable_yes);
+                            handler_no = null;
+                            handler_yes = null;
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        dialog.cancel();
+                    }
+                });
+                dialog.show();
             }
         });
 
     }
+
 
     @Override
     public void onGpsStatusChanged(int event) {
