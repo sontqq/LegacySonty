@@ -58,7 +58,9 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     TextView statsTextview;
     SeekBar seekBar;
     TextView seekval;
-    public TextView alertText;
+    public TextView alertText1;
+    public TextView alertText2;
+    public TextView alertText3;
     static Handler statsHandler;
     static Runnable statsRunnable;
 
@@ -152,10 +154,11 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         Runnable runnable_no = new Runnable() {
             @Override
             public void run() {
-                alertText.setText(Html.fromHtml(
+                /*alertText.setText(Html.fromHtml(
                         BackgroundService.locationToStringAddress(getApplicationContext(), BackgroundService.CURRENT_LOCATION),
-                        Html.FROM_HTML_MODE_LEGACY));
-
+                        Html.FROM_HTML_MODE_LEGACY));*/
+                alertText1.setText(BackgroundService.Live_Http_GET_SingleRecord.lastHandledURL);
+                alertText2.setText("Errors: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError);
                 handler_no.postDelayed(this, 1000);
             }
         };
@@ -175,7 +178,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 for (ScanResult sr : temp) {
                     msg = msg + "<b>" + sr.SSID + "</b> | " + sr.level + " | " + BackgroundService.getScanResultSecurity(sr) + "<br>";
                 }
-                alertText.setText(Html.fromHtml(msg, Html.FROM_HTML_MODE_LEGACY));
+                alertText1.setText(Html.fromHtml(msg, Html.FROM_HTML_MODE_LEGACY));
 
                 handler_yes.postDelayed(this, 1000);
             }
@@ -387,7 +390,6 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 finish();
             }
         });
-
         blfileburstbtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -489,10 +491,11 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                         //Log.d("BL_FILE_", "siker: " + utf_letter);
                                         final String reqBody =
                                                 "?id=0&name=" + name +
+                                                        "&longtime=" + System.currentTimeMillis() +
                                                         "&address=" + utf_letter +
                                                         "&macaddress=" + address +
                                                         "&islowenergy=" + "unknown" +
-                                                        "&source=" + "legacy_sonty" +
+                                                        "&source=" + "legacy_sonty_looper" +
                                                         "&long=" + longitude +
                                                         "&lat=" + latitude +
                                                         "&progress=" + lines_arr.size() + "_" + i + "_" + percentage;
@@ -500,7 +503,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                         Runnable webReqRunnable_bl_init = new Runnable() {
                                             @Override
                                             public void run() {
-                                                BackgroundService.RequestTaskListener requestTaskListener_bl = new BackgroundService.RequestTaskListener() {
+                                                BackgroundService.RequestTaskListener requestTaskListener_bl_filelooper = new BackgroundService.RequestTaskListener() {
                                                     @Override
                                                     public void update(String string) {
                                                         if (string != null) {
@@ -527,7 +530,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                                 };
                                                 if (!name.equals("null") && name != null) {
                                                     BackgroundService.RequestTask_Bluetooth requestTask_bl = new BackgroundService.RequestTask_Bluetooth();
-                                                    requestTask_bl.addListener(requestTaskListener_bl);
+                                                    requestTask_bl.addListener(requestTaskListener_bl_filelooper);
                                                     requestTask_bl.execute(reqBody);
                                                 }
                                             }
@@ -555,7 +558,6 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 tempt.start();
             }
         });
-
         wifibtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -627,12 +629,14 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
 
                 Dialog dialog = new Dialog(MainActivity.this);
                 dialog.setContentView(R.layout.custom_alert_dialog);
-                alertText = (TextView) dialog.findViewById(R.id.alerttxt);
+                alertText1 = (TextView) dialog.findViewById(R.id.alerttxt1);
+                alertText2 = (TextView) dialog.findViewById(R.id.alerttxt2);
+                alertText3 = (TextView) dialog.findViewById(R.id.alerttxt3);
                 Button btnYes = dialog.findViewById(R.id.yes);
                 Button btnNo = dialog.findViewById(R.id.no);
                 Button btnClose = dialog.findViewById(R.id.closebtn);
                 dialog.setCancelable(false);
-                alertText.setText("asd");
+                alertText1.setText(String.valueOf(System.currentTimeMillis()));
 
                 btnYes.setOnClickListener(new View.OnClickListener() {
                     @Override

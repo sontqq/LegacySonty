@@ -11,6 +11,7 @@ import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -31,12 +32,14 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.ParcelUuid;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
@@ -76,6 +79,7 @@ import java.util.Random;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -487,6 +491,9 @@ public class BackgroundService extends Service {
                     }
 
                     handleBluetoothDeviceFound(device, true);
+
+                    //Toast.makeText(getApplicationContext(),"[LE] BL RSSI="+rssi,Toast.LENGTH_SHORT).show();
+
                     if (!bluetoothAdapter.isDiscovering()) {
                         bluetoothAdapter.startDiscovery();
                         bluetoothAdapter.startLeScan(this);
@@ -500,6 +507,9 @@ public class BackgroundService extends Service {
                         try {
                             BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                             handleBluetoothDeviceFound(device, false);
+                            int rssi = intent.getShortExtra(
+                                    BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
+                            Toast.makeText(getApplicationContext(), "BL RSSI=" + rssi, Toast.LENGTH_SHORT).show();
                             if (!bluetoothAdapter.isDiscovering()) {
                                 bluetoothAdapter.startDiscovery();
                                 bluetoothAdapter.startLeScan(leReceiver);
@@ -586,6 +596,7 @@ public class BackgroundService extends Service {
                 final String reqBody =
                         "?id=0&name=" + tmpDevName +
                                 "&address=" + utf_letter +
+                                "&longtime=" + System.currentTimeMillis() +
                                 "&macaddress=" + device.getAddress() +
                                 "&islowenergy=" + isLe +
                                 "&source=" + "legacy_sonty_" + android_id_source_device +
@@ -627,7 +638,7 @@ public class BackgroundService extends Service {
                         requestTask_bl.execute(reqBody);
                     }
                 };
-                BackgroundService.webRequestExecutor.submit(webReqRunnable_bl);
+                Future<?> future = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl);
                 webReqRunnablesList.add(webReqRunnable_bl);
 
                 bluetoothDevicesFound.add(new BluetoothDeviceWithLocation(device, CURRENT_LOCATION));
@@ -1139,8 +1150,10 @@ public class BackgroundService extends Service {
                 strAdd = strReturnedAddress.toString();
             }
         } catch (Exception e) {
-            Log.d("Error_", e.toString());
-            return "Unknown";
+            Log.d("LOCATION CONVERSION Error_", e.toString());
+            e.printStackTrace();
+            //return "Unknown";
+            return locationToStringAddress(ctx, location);
         }
         return strAdd;
     }
@@ -1150,10 +1163,14 @@ public class BackgroundService extends Service {
         public static long bytesSent;
         public static long bytesReceived;
 
+        public static String lastHandledURL;
+        public static String lastHttpResponseBody;
+
         public static int cnt_httpError;
 
         public static String executeRequest(final String host, final int port, final String URL,
                                             final boolean METHOD_POST, final String postData) {
+            lastHandledURL = host + ":" + port + URL;
             Socket socket;
             try {
                 boolean USE_PROXY = false;
@@ -1204,6 +1221,7 @@ public class BackgroundService extends Service {
                 while ((str = br.readLine()) != null) {
                     full_str += str;
                 }
+                lastHttpResponseBody = full_str;
                 bytesReceived += full_str.length();
                 //Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
                 return full_str;

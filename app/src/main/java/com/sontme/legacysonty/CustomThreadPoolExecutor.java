@@ -43,5 +43,10 @@ public class CustomThreadPoolExecutor extends ThreadPoolExecutor {
         super.shutdown();
     }
 
+    @Override
+    public boolean isTerminating() {
+        return super.isTerminating();
+    }
+
 
 }
