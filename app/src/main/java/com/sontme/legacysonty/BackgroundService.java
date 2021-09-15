@@ -118,7 +118,7 @@ public class BackgroundService extends Service {
     public static LocationListener locationListener;
     public static LocationManager locationManager;
 
-    //String PROVIDER = LocationManager.NETWORK_PROVIDER;
+    ////String PROVIDER = LocationManager.NETWORK_PROVIDER;
     String PROVIDER = LocationManager.GPS_PROVIDER;
     public static int TIME = 0;
     public static int DISTANCE = 0;
