@@ -427,6 +427,24 @@ public class BackgroundService extends Service {
             }
         };
 
+        showOngoing("Requesting Location");
+        if (android_id_source_device.contains("ANYA")) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            }
+            locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    TIME, DISTANCE,
+                    locationListener);
+        } else {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            }
+            locationManager.requestLocationUpdates(
+                    PROVIDER,
+                    TIME, DISTANCE,
+                    locationListener);
+        }
+        showOngoing("Location Requested");
+
         webRequestExecutor.setKeepAliveTime(30, TimeUnit.SECONDS);
         webRequestExecutor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
             @Override
@@ -435,13 +453,6 @@ public class BackgroundService extends Service {
             }
         });
 
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        }
-        locationManager.requestLocationUpdates(
-                PROVIDER,
-                TIME, DISTANCE,
-                locationListener);
-        showOngoing("Location Requested");
         AlarmManager alarmMgr = (AlarmManager) getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(getApplicationContext(), Alarm.class);
         intent.putExtra("requestCode", 66);
@@ -587,10 +598,30 @@ public class BackgroundService extends Service {
                 utf_letter = utf_letter.replaceAll("Ő", "Ö");
                 utf_letter = utf_letter.replaceAll("Ű", "Ü");
                 String tmpDevName = "null";
-                if (device.getName() == null || device.getName().length() < 1) {
+                if (device.getName() == null || device.getName().length() < 1 || device.getName() == "null") {
                     BluetoothManager tmpBluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
                     tmpDevName = tmpBluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
+                } else if (tmpDevName == "null" || tmpDevName == null) {
+                    String url = "http://macvendors.co/api/vendorname/" + device.getAddress();
+                    AndroidNetworking.get(url)
+                            .setPriority(Priority.IMMEDIATE)
+                            .build()
+                            .getAsString(new StringRequestListener() {
+                                @Override
+                                public void onResponse(String response) {
+                                    Log.d("MAC_API_TEST_", "RESPONSE='" + response + "'");
+                                    sendMessage_Telegram("MACRESPONSE=" + response);
+                                    //tmpDevName = response.trim();
+                                }
+
+                                @Override
+                                public void onError(ANError error) {
+                                    Log.d("MAC_API_TEST_", "ERROR! " + error.getMessage());
+                                    error.printStackTrace();
+                                }
+                            });
                 } else {
+                    Log.d("MAC_API_TEST_", "NEM FUTOTT");
                     tmpDevName = device.getName();
                 }
                 final String reqBody =

@@ -150,7 +150,11 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
         };
         managePermissions();
-
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(MainActivity.this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                    99);
+        }
         Runnable runnable_no = new Runnable() {
             @Override
             public void run() {
@@ -291,7 +295,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             } catch (Exception e) {
                 e.printStackTrace();
             }
-            final Handler locationRequestHandler = new Handler();
+            /*final Handler locationRequestHandler = new Handler();
             locationRequestHandler.postDelayed(new Runnable() {
                 public void run() {
                     if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -305,7 +309,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                     }
                     locationRequestHandler.postDelayed(this, 1000);
                 }
-            }, 1000);
+            }, 1000);*/
 
             statsHandler = new Handler();
             statsHandler.postDelayed(statsRunnable = new Runnable() {

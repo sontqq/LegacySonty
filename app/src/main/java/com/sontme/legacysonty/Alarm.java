@@ -14,7 +14,7 @@ import android.util.Log;
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
-        if (BackgroundService.android_id_source_device.equals("ANYA_XIAOMI")) {
+        /*if (BackgroundService.android_id_source_device.equals("ANYA_XIAOMI")) {
             try {
                 BatteryManager bm = (BatteryManager) context.getSystemService(BATTERY_SERVICE);
                 int batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
@@ -51,7 +51,7 @@ public class Alarm extends BroadcastReceiver {
             } catch (Exception e) {
                 //e.printStackTrace();
             }
-        }
+        }*/
         Intent serviceIntent = new Intent(context, BackgroundService.class);
         context.startService(serviceIntent);
         Log.d("ALARM_", "RAN!");
