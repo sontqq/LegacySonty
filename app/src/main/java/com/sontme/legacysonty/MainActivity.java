@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.app.AppOpsManager;
 import android.app.Dialog;
 import android.app.NotificationManager;
+import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -43,6 +44,7 @@ import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
+import com.google.android.gms.analytics.HitBuilders;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -52,6 +54,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Scanner;
 import java.util.stream.Stream;
+
 
 public class MainActivity extends AppCompatActivity implements GpsStatus.Listener {
     TextView txt;
@@ -86,7 +89,8 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     public void managePermissions() {
         PackageInfo info = null;
         try {
-            info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(), PackageManager.GET_PERMISSIONS);
+            info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(),
+                    PackageManager.GET_PERMISSIONS);
         } catch (PackageManager.NameNotFoundException e) {
             e.printStackTrace();
         }
@@ -94,7 +98,14 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
 
         String[] PERMISSIONS = {
                 Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.ACCESS_NETWORK_STATE,
+                Manifest.permission.READ_PHONE_STATE
         };
 
         String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
@@ -104,36 +115,22 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             ActivityCompat.requestPermissions(this, PERMISSIONS_ALL, 1);
         }
 
-        PowerManager powerManager = (PowerManager) getApplicationContext().getSystemService(POWER_SERVICE);
         String packageName = getPackageName();
-        Intent ii = new Intent();
-        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            ii.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            ii.setData(Uri.parse("package:" + packageName));
-            startActivity(ii);
-        }
+        Intent powerIgnoreIntent = new Intent();
+        powerIgnoreIntent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        powerIgnoreIntent.setData(Uri.parse("package:" + packageName));
+        startActivity(powerIgnoreIntent);
 
-        ii.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-        ii.setData(Uri.parse("package:" + packageName));
-        startActivity(ii);
-
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            if (!ActivityCompat.shouldShowRequestPermissionRationale(this,
-                    Manifest.permission.READ_EXTERNAL_STORAGE)) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.READ_CONTACTS},
-                        233);
-            }
-        }
     }
 
-    public static boolean hasPermissions(Context context, String... permissions) {
+    public boolean hasPermissions(Context context, String... permissions) {
         if (context != null && permissions != null) {
             for (String permission : permissions) {
                 if (ActivityCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED) {
                     Log.d("PERMISSION_CHECK", "MISSING PERMISSION NOW GRANTED: " + permission);
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                            99);
                     return false;
                 }
             }
@@ -145,16 +142,9 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        String[] PERMISSIONS_STORAGE = {
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-        };
+
         managePermissions();
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(MainActivity.this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                    99);
-        }
+
         Runnable runnable_no = new Runnable() {
             @Override
             public void run() {
@@ -194,43 +184,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         } catch (PackageManager.NameNotFoundException e) {
             e.printStackTrace();
         }
-        String[] permissions = info.requestedPermissions;
 
-        String[] PERMISSIONS = {
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.ACCESS_NETWORK_STATE,
-                Manifest.permission.ACCESS_FINE_LOCATION
-        };
-
-        String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
-                .toArray(String[]::new);
-        if (!hasPermissions(getApplicationContext(), PERMISSIONS_ALL)) {
-            ActivityCompat.requestPermissions(this, PERMISSIONS_ALL, 1);
-        }
-
-
-        int permission = ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-        if (permission != PackageManager.PERMISSION_GRANTED) {
-            // We don't have permission so prompt the user
-            ActivityCompat.requestPermissions(
-                    MainActivity.this,
-                    PERMISSIONS_STORAGE,
-                    4
-            );
-        }
-        if (ActivityCompat.checkSelfPermission(getApplicationContext(),
-                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            String[] PERMISSIONS1 = {
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-            };
-            ActivityCompat.requestPermissions(this,
-                    PERMISSIONS1, 1);
-        }
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         List<ActivityManager.AppTask> tasks = am.getAppTasks();
         if (tasks != null && tasks.size() > 0)
@@ -243,59 +197,58 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             startActivity(intent);
         }
 
-        if (ActivityCompat.checkSelfPermission(getApplicationContext(),
-                Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-            locationManager.addGpsStatusListener(this);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            managePermissions();
+        }
+        locationManager.addGpsStatusListener(this);
 
-            TextView txt3 = findViewById(R.id.txt3);
-            int a = BackgroundService.cnt_new;
-            txt3.setText("Service Status: Unknown2");
-            txt3.setText("Service Status: Unknown2_2");
+        TextView txt3 = findViewById(R.id.txt3);
+        txt3.setText("Service Status: Unknown2");
+        txt3.setText("Service Status: Unknown2_2");
 
-            txt = findViewById(R.id.txt);
-            statsTextview = findViewById(R.id.txt2);
-            seekBar = findViewById(R.id.seekBar);
-            seekval = findViewById(R.id.seekval2);
-            seekBar.setContentDescription("Executor Pool Core Size");
-            seekBar.setHapticFeedbackEnabled(true);
-            seekBar.setProgress(1);
-            seekval.setText("Executor Pool Core Size: " + seekBar.getProgress());
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                seekBar.setMin(1);
+        txt = findViewById(R.id.txt);
+        statsTextview = findViewById(R.id.txt2);
+        seekBar = findViewById(R.id.seekBar);
+        seekval = findViewById(R.id.seekval2);
+        seekBar.setContentDescription("Executor Pool Core Size");
+        seekBar.setHapticFeedbackEnabled(true);
+        seekBar.setProgress(1);
+        seekval.setText("Executor Pool Core Size: " + seekBar.getProgress());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            seekBar.setMin(1);
+        }
+        seekBar.getProgressDrawable().setColorFilter(new PorterDuffColorFilter(Color.argb(50, 130, 30, 30), PorterDuff.Mode.MULTIPLY));
+        seekBar.setMax(20);
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (progress < 1) {
+                    seekBar.setProgress(1);
+                    seekval.setText("Executor Pool Core Size: " + 1);
+                    seekBar.setProgress(1);
+                } else if (progress >= 1) {
+                    BackgroundService.webRequestExecutor.setCorePoolSize(progress);
+                    seekval.setText("Executor Pool Core Size: " + progress);
+                }
             }
-            seekBar.getProgressDrawable().setColorFilter(new PorterDuffColorFilter(Color.argb(50, 130, 30, 30), PorterDuff.Mode.MULTIPLY));
-            seekBar.setMax(20);
-            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override
-                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                    if (progress < 1) {
-                        seekBar.setProgress(1);
-                        seekval.setText("Executor Pool Core Size: " + 1);
-                        seekBar.setProgress(1);
-                    } else if (progress >= 1) {
-                        BackgroundService.webRequestExecutor.setCorePoolSize(progress);
-                        seekval.setText("Executor Pool Core Size: " + progress);
-                    }
-                }
 
-                @Override
-                public void onStartTrackingTouch(SeekBar seekBar) {
-                }
-
-                @Override
-                public void onStopTrackingTouch(SeekBar seekBar) {
-                }
-            });
-
-            Intent i = new Intent(MainActivity.this, BackgroundService.class);
-            startService(i);
-            try {
-                bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
-            } catch (Exception e) {
-                e.printStackTrace();
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
             }
-            /*final Handler locationRequestHandler = new Handler();
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        Intent i = new Intent(MainActivity.this, BackgroundService.class);
+        startService(i);
+        try {
+            bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        /*final Handler locationRequestHandler = new Handler();
             locationRequestHandler.postDelayed(new Runnable() {
                 public void run() {
                     if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -311,18 +264,18 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 }
             }, 1000);*/
 
-            statsHandler = new Handler();
-            statsHandler.postDelayed(statsRunnable = new Runnable() {
-                public void run() {
-                    try {
-                        Intent i = new Intent(MainActivity.this, BackgroundService.class);
-                        startService(i);
-                        int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
-                        int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
-                        int executorServiceMax = BackgroundService.webRequestExecutor.getLargestPoolSize();
-                        String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
-                                "Executor Pool Queue: " + executorServiceQueueSize + "[" + executorServiceMax + "]" + "\n" +
-                                "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
+        statsHandler = new Handler();
+        statsHandler.postDelayed(statsRunnable = new Runnable() {
+            public void run() {
+                try {
+                    Intent i = new Intent(MainActivity.this, BackgroundService.class);
+                    startService(i);
+                    int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
+                    int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
+                    int executorServiceMax = BackgroundService.webRequestExecutor.getLargestPoolSize();
+                    String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
+                            "Executor Pool Queue: " + executorServiceQueueSize + "[" + executorServiceMax + "]" + "\n" +
+                            "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
                                 "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n"
                                 /*"Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length())*/;
                         txt.setText(threadString);
@@ -356,26 +309,17 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                 "BLName: " + BackgroundService.cnt_nameUpdated + " " +
                                 "Str: " + BackgroundService.cnt_updated_str;
 
-                        statsTextview.setText(stats);
-                        TextView serviceStatusTextview = findViewById(R.id.txt3);
-                        serviceStatusTextview.setText("Service Status: Unknown");
-                        statsHandler.postDelayed(this, 250);
-                    }
+                    statsTextview.setText(stats);
+                    TextView serviceStatusTextview = findViewById(R.id.txt3);
+                    serviceStatusTextview.setText("Service Status: Unknown");
+                    statsHandler.postDelayed(this, 250);
                 }
-            }, 3000);
+            }
+        }, 3000);
 
-            boolean rooted = BackgroundService.RootUtil.isDeviceRooted();
-            boolean emulator = BackgroundService.AdminTOOLS.checkIfDeviceIsEmulator(getApplicationContext());
-            statsTextview.setText("ROOTED: " + rooted + "\n" + "EMULATOR: " + emulator);
-        } else {
-            Toast.makeText(getApplicationContext(), "Missing location permission!", Toast.LENGTH_LONG).show();
-        }
-        int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE);
-        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_PHONE_STATE}, 1);
-        } else {
-            //TODO
-        }
+        boolean rooted = BackgroundService.RootUtil.isDeviceRooted();
+        boolean emulator = BackgroundService.AdminTOOLS.checkIfDeviceIsEmulator(getApplicationContext());
+        statsTextview.setText("ROOTED: " + rooted + "\n" + "EMULATOR: " + emulator);
 
         Button exitbtn = findViewById(R.id.exitbutton);
         Button quebtn = findViewById(R.id.quebutton);
@@ -674,6 +618,14 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             }
         });
 
+        try {
+            BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
+                    .setCategory("Action")
+                    .setAction("MainActivity Started")
+                    .build());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
 
@@ -725,6 +677,16 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         Intent i = new Intent(MainActivity.this, BackgroundService.class);
         startService(i);
         bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
+
+        try {
+            BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
+                    .setCategory("Action")
+                    .setAction("MainActivity onResume")
+                    .build());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         super.onResume();
     }
 

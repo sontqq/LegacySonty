@@ -16,34 +16,6 @@
         android:paddingBottom="10dp"
         android:progressDrawable="@drawable/seekbarstyle" />
 
-    <Button
-        android:id="@+id/quebutton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:text="Add Queue" />
-
-    <Button
-        android:id="@+id/openwifibutton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:text="Connect Strongest OPEN WiFi" />
-
-    <Button
-        android:id="@+id/blfileburst"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:text="BL File Burst" />
-
-    <Button
-        android:id="@+id/exitbutton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:text="Exit" />
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -78,6 +50,34 @@
             android:textAlignment="viewEnd" />
 
     </LinearLayout>
+
+    <Button
+        android:id="@+id/quebutton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="Add Queue" />
+
+    <Button
+        android:id="@+id/openwifibutton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="Connect Strongest OPEN WiFi" />
+
+    <Button
+        android:id="@+id/blfileburst"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="BL File Burst" />
+
+    <Button
+        android:id="@+id/exitbutton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="Exit" />
 
     <TextView
         android:id="@+id/txt"

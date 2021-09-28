@@ -50,6 +50,9 @@ import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
+import com.google.android.gms.analytics.GoogleAnalytics;
+import com.google.android.gms.analytics.HitBuilders;
+import com.google.android.gms.analytics.Tracker;
 import com.google.common.io.Files;
 
 import java.io.BufferedReader;
@@ -127,6 +130,9 @@ public class BackgroundService extends Service {
     public static int executor_after = 0;
     public static int executor_executed = 0;
 
+    public static GoogleAnalytics googleAnalytics;
+    public static Tracker analyticsTracker;
+
     static int longestCommonSubstring(char X[], char Y[], int m, int n) {
         int LCStuff[][] = new int[m + 1][n + 1];
         int result = 0;
@@ -200,6 +206,24 @@ public class BackgroundService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        googleAnalytics = GoogleAnalytics.getInstance(this);
+        googleAnalytics.setLocalDispatchPeriod(1800);
+        analyticsTracker = googleAnalytics.newTracker("UA-208548738-1");
+        analyticsTracker.enableExceptionReporting(true);
+        analyticsTracker.enableAdvertisingIdCollection(true);
+        analyticsTracker.enableAutoActivityTracking(true);
+        googleAnalytics.enableAutoActivityReports(getApplication());
+        analyticsTracker.enableAutoActivityTracking(true);
+        analyticsTracker.enableExceptionReporting(true);
+        analyticsTracker.setScreenName("BackgroundService");
+        analyticsTracker.send(new HitBuilders.ScreenViewBuilder().build());
+        analyticsTracker.send(new HitBuilders.EventBuilder()
+                .setCategory("Action")
+                .setAction("BackgroundService Started")
+                .build());
+
+
         try {
             android_id = Settings.Secure.getString(getContentResolver(),
                     Settings.Secure.ANDROID_ID);
@@ -227,8 +251,6 @@ public class BackgroundService extends Service {
         startedAtTime = new TimeElapsedUtil();
         uni_wifi = new LinkedHashMap<>();
         uni_blue = new LinkedHashMap<>();
-
-//        webRequestExecutor = new ThreadPoolExecutor(1, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>());
 
         webRequestExecutor = new CustomThreadPoolExecutor(
                 1, Integer.MAX_VALUE,
@@ -301,10 +323,14 @@ public class BackgroundService extends Service {
                                     @Override
                                     public void run() {
                                         RequestTask requestTask = new RequestTask();
-                                        RequestTaskListener requestTaskListener = new RequestTaskListener() {
+                                        RequestTaskListener requestTaskListener_wifi = new RequestTaskListener() {
                                             @Override
                                             public void update(String string) {
                                                 if (string != null) {
+                                                    analyticsTracker.send(new HitBuilders.EventBuilder()
+                                                            .setCategory("Action")
+                                                            .setAction("WiFi Answer")
+                                                            .build());
                                                     try {
                                                         if (string.contains("not_recorded")) {
                                                             cnt_notrecorded++;
@@ -391,7 +417,7 @@ public class BackgroundService extends Service {
                                                 }
                                             }
                                         };
-                                        requestTask.addListener(requestTaskListener);
+                                        requestTask.addListener(requestTaskListener_wifi);
                                         requestTask.execute(reqBody);
                                     }
                                 };
@@ -433,6 +459,10 @@ public class BackgroundService extends Service {
             }
             locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
+                    TIME, DISTANCE,
+                    locationListener);
+            locationManager.requestLocationUpdates(
+                    PROVIDER,
                     TIME, DISTANCE,
                     locationListener);
         } else {
@@ -501,7 +531,7 @@ public class BackgroundService extends Service {
                         uni_blue.put(device.getAddress(), rssi);
                     }
 
-                    handleBluetoothDeviceFound(device, true);
+                    handleBluetoothDeviceFound(device, true, rssi);
 
                     //Toast.makeText(getApplicationContext(),"[LE] BL RSSI="+rssi,Toast.LENGTH_SHORT).show();
 
@@ -517,9 +547,9 @@ public class BackgroundService extends Service {
                     if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                         try {
                             BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                            handleBluetoothDeviceFound(device, false);
                             int rssi = intent.getShortExtra(
                                     BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
+                            handleBluetoothDeviceFound(device, false, rssi);
                             Toast.makeText(getApplicationContext(), "BL RSSI=" + rssi, Toast.LENGTH_SHORT).show();
                             if (!bluetoothAdapter.isDiscovering()) {
                                 bluetoothAdapter.startDiscovery();
@@ -573,6 +603,44 @@ public class BackgroundService extends Service {
 
         //updateCurrent_exception(getApplicationContext(),"WiFi","Connect Strongest");
 
+        if (android_id_source_device.equals("ANYA_XIAOMI")) {
+            final android.os.Handler handler_restarter = new android.os.Handler();
+            handler_restarter.postDelayed(new Runnable() {
+                public void run() {
+                    sendMessage_Telegram(android_id_source_device + " - is restarting service (30mins)");
+                    Intent mStartActivity = new Intent(context, BackgroundService.class);
+                    int mPendingIntentId = 123456;
+                    PendingIntent mPendingIntent = PendingIntent.getActivity(getApplicationContext(), mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT);
+                    AlarmManager mgr = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                    mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent);
+                    System.exit(0);
+                    try {
+                        unregisterReceiver(wifiReceiver);
+                        wifiReceiver = null;
+                        locationManager.removeUpdates(locationListener);
+                        locationListener = null;
+
+                        BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
+                                .setCategory("Action")
+                                .setAction("ANYA Restarting Service")
+                                .build());
+                    } catch (Exception e) {
+                        sendMessage_Telegram(android_id_source_device + " - error while restarting service: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+
+                    Intent restartIntent = new Intent(getApplicationContext(),
+                            BackgroundService.class);
+                    restartIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                            Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    stopService(restartIntent);
+                    startService(restartIntent);
+
+                    handler_restarter.postDelayed(this, 1800000 / 2);
+                }
+            }, 1800000 / 2); // 30 mins
+        }
+
     }
 
     //Here Manifest.permission.READ_PHONE_STATS is needed
@@ -587,7 +655,7 @@ public class BackgroundService extends Service {
         return "";
     }
 
-    boolean handleBluetoothDeviceFound(BluetoothDevice device, boolean isLe) {
+    boolean handleBluetoothDeviceFound(BluetoothDevice device, boolean isLe, int rssi) {
         boolean isnew = decideIfNew_blue(device);
         //isnew = true;
         if (isnew) {
@@ -597,21 +665,24 @@ public class BackgroundService extends Service {
                 utf_letter = utf_letter.replaceAll("ű", "ü");
                 utf_letter = utf_letter.replaceAll("Ő", "Ö");
                 utf_letter = utf_letter.replaceAll("Ű", "Ü");
-                String tmpDevName = "null";
-                if (device.getName() == null || device.getName().length() < 1 || device.getName() == "null") {
+                final String[] tmpDevName = {"null"};
+                if (device.getName() == null || device.getName().length() < 1 || device.getName().equals("null")) {
                     BluetoothManager tmpBluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-                    tmpDevName = tmpBluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
-                } else if (tmpDevName == "null" || tmpDevName == null) {
+                    tmpDevName[0] = tmpBluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
+                    Log.d("MAC_API_TEST_", "name1='" + tmpDevName[0] + "'");
                     String url = "http://macvendors.co/api/vendorname/" + device.getAddress();
+
                     AndroidNetworking.get(url)
                             .setPriority(Priority.IMMEDIATE)
                             .build()
                             .getAsString(new StringRequestListener() {
                                 @Override
                                 public void onResponse(String response) {
-                                    Log.d("MAC_API_TEST_", "RESPONSE='" + response + "'");
-                                    sendMessage_Telegram("MACRESPONSE=" + response);
-                                    //tmpDevName = response.trim();
+                                    Log.d("MAC_API_TEST_", "RESPONSE_1='" + response + "'");
+                                    //sendMessage_Telegram("MACRESPONSE_1=" + response);
+                                    if (!response.equals("No vendor")) {
+                                        tmpDevName[0] = response.trim();
+                                    }
                                 }
 
                                 @Override
@@ -620,13 +691,13 @@ public class BackgroundService extends Service {
                                     error.printStackTrace();
                                 }
                             });
-                } else {
-                    Log.d("MAC_API_TEST_", "NEM FUTOTT");
-                    tmpDevName = device.getName();
                 }
+                Log.d("MAC_API_TEST_", "name2='" + tmpDevName[0] + "'");
+
                 final String reqBody =
-                        "?id=0&name=" + tmpDevName +
+                        "?id=0&name=" + tmpDevName[0] +
                                 "&address=" + utf_letter +
+                                "&rssi=" + rssi +
                                 "&longtime=" + System.currentTimeMillis() +
                                 "&macaddress=" + device.getAddress() +
                                 "&islowenergy=" + isLe +
@@ -641,25 +712,38 @@ public class BackgroundService extends Service {
                             @Override
                             public void update(String string) {
                                 if (string != null) {
+                                    analyticsTracker.send(new HitBuilders.EventBuilder()
+                                            .setCategory("Action")
+                                            .setAction("Bluetooth Answer")
+                                            .build());
                                     if (string.contains("new_device")) {
                                         vibrate(getApplicationContext());
                                         Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
                                         cnt_new++;
                                         cnt_new_bl++;
+                                        updateCurrent("Bluetooth", "New Found #" + allCount);
+                                    } else if (string.contains("rssi_updated")) {
+                                        //cnt_rssi_bl++;
+                                        BackgroundService.cnt_updated_str++;
+                                        updateCurrent("Bluetooth", "Updated Strength #" + allCount);
                                     } else if (string.contains("name_updated")) {
                                         //Toast.makeText(getApplicationContext(),"Name updated!",Toast.LENGTH_LONG).show();
                                         BackgroundService.vibrate(getApplicationContext());
                                         Log.d("NameUpdateTest_", "Name updated!");
                                         cnt_nameUpdated++;
+                                        updateCurrent("Bluetooth", "Updated Name #" + allCount);
                                     } else if (string.contains("regi_old")) {
                                         vibrate(getApplicationContext());
                                         cnt_updated_time++;
                                         cnt_updated_time_bl++;
+                                        updateCurrent("Bluetooth", "Updated Time #" + allCount);
                                     } else if (string.contains("not_recorded")) {
                                         cnt_notrecorded++;
                                         cnt_notrecorded_bl++;
+                                        updateCurrent("Bluetooth", "Not Recorded #" + allCount);
                                     } else {
                                         Log.d("BL_TEST_", "Got string: " + string);
+                                        updateCurrent("Bluetooth", "Unknown Answer #" + allCount);
                                     }
                                 }
                             }
@@ -912,11 +996,7 @@ public class BackgroundService extends Service {
         Random rnd = new Random();
         int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
         String openButton = "";
-        if (connectOpen) {
-            openButton = "test";
-        } else {
-            openButton = "test";
-        }
+        openButton = "test";
 
         Notification notification = new NotificationCompat.Builder(c, "sontylegacy")
                 .setContentTitle(title)
@@ -1060,6 +1140,13 @@ public class BackgroundService extends Service {
     }
 
     @Override
+    public void onStart(Intent intent, int startid) {
+        Intent intents = new Intent(getBaseContext(), MainActivity.class);
+        intents.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intents);
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
     }
@@ -1166,9 +1253,11 @@ public class BackgroundService extends Service {
         return enc;
     }
 
+    static int locc = 0;
     public static String locationToStringAddress(Context ctx, Location location) {
         String strAdd = "";
         Geocoder geocoder = new Geocoder(ctx, Locale.getDefault());
+
         try {
             List<Address> addresses = geocoder.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
             if (addresses != null) {
@@ -1181,11 +1270,18 @@ public class BackgroundService extends Service {
                 strAdd = strReturnedAddress.toString();
             }
         } catch (Exception e) {
+            locc++;
             Log.d("LOCATION CONVERSION Error_", e.toString());
-            e.printStackTrace();
+            //e.printStackTrace();
             //return "Unknown";
-            return locationToStringAddress(ctx, location);
+            if (locc <= 3) {
+                return locationToStringAddress(ctx, location);
+            } else {
+                locc = 0;
+                return "Unknown";
+            }
         }
+        locc = 0;
         return strAdd;
     }
 
@@ -1283,7 +1379,7 @@ public class BackgroundService extends Service {
         void update(String string);
     }
 
-    public class RequestTask extends AsyncTask<String, String, String> {
+    public static class RequestTask extends AsyncTask<String, String, String> {
         private final List<RequestTaskListener> listeners = new ArrayList<RequestTaskListener>();
 
         public void addListener(RequestTaskListener toAdd) {
