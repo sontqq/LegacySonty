@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "402127423594",
+    "project_id": "sonti-ab827",
+    "storage_bucket": "sonti-ab827.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:402127423594:android:c18792bc89f7a93819e213",
+        "android_client_info": {
+          "package_name": "com.sontme.legacysonty"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "402127423594-ok73geo22e3hnl1qe8cl2kidvp6na7mp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA7gB9iVJMdBuWAE1i7us0DjrwQHH9RIlA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "402127423594-ok73geo22e3hnl1qe8cl2kidvp6na7mp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

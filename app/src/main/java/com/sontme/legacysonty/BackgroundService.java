@@ -1324,51 +1324,64 @@ public class BackgroundService extends AccessibilityService {
     }
 
     public void showOngoing(String text) {
-        Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
-        notificationIntent.putExtra("29294", "29294");
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                getApplicationContext(),
-                29294,
-                notificationIntent,
-                PendingIntent.FLAG_IMMUTABLE
-        );
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
+            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
+            Notification notification = notificationBuilder.setOngoing(true)
+                    .setSmallIcon(R.drawable.servicetransparenticon)
+                    .setContentTitle("App is running in background")
+                    .setPriority(NotificationManager.IMPORTANCE_MIN)
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .build();
+            startForeground(2, notification);
+        } else {
 
-        Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
-        intent.setAction("exit");
-        intent.putExtra("requestCode", 99);
-        PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
+            Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
+            notificationIntent.putExtra("29294", "29294");
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                    getApplicationContext(),
+                    29294,
+                    notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE
+            );
 
-        Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
-        intent_location_network.setAction("network");
-        intent_location_network.putExtra("requestCode", 101);
-        PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
-                101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
+            Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent.setAction("exit");
+            intent.putExtra("requestCode", 99);
+            PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
 
-        Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
-        intent_location_gps.setAction("gps");
-        intent_location_gps.putExtra("requestCode", 102);
-        PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
-                102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
+            Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent_location_network.setAction("network");
+            intent_location_network.putExtra("requestCode", 101);
+            PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
+                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
 
-        int color2 = Color.argb(255, 220, 237, 193);
-        Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
-                .setContentTitle("SontyLegacy Service")
-                .setContentText(text)
-                .setColorized(true)
-                .setColor(color2)
-                .setContentInfo("CONTENT INFO")
-                .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
-                .setCategory(Notification.CATEGORY_SERVICE)
-                .setSmallIcon(R.drawable.servicetransparenticon)
-                .setContentIntent(pendingIntent)
-                .setChannelId("sonty")
-                .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
-                .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
-                .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
-                .build();
+            Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent_location_gps.setAction("gps");
+            intent_location_gps.putExtra("requestCode", 102);
+            PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
+                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
 
-        startForeground(58, notification);
-
+            int color2 = Color.argb(255, 220, 237, 193);
+            Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
+                    .setContentTitle("SontyLegacy Service")
+                    .setContentText(text)
+                    .setColorized(true)
+                    .setColor(color2)
+                    .setContentInfo("CONTENT INFO")
+                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .setSmallIcon(R.drawable.servicetransparenticon)
+                    .setContentIntent(pendingIntent)
+                    .setChannelId("sonty")
+                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
+                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
+                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
+                    .build();
+            startForeground(58, notification);
+        }
     }
 
     public static void createNotifGroup(Context ctx, String id, String name) {
