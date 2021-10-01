@@ -10,6 +10,7 @@
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -66,10 +67,18 @@
 
         <service
             android:name=".BackgroundService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:label="BackgroundService">
             <!--android:process=":BACKGROUND_SERVICE"-->
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+
             <intent-filter>
                 <action android:name="com.sontme.legacysonty.BackgroundService" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
         </service>
 

@@ -3381,7 +3381,7 @@ public class SontHelperSonty {
         return file.getAbsolutePath();
     }
 
-    public static List<NeighboringCellInfo> getCellTowers(Context ctx) {
+    /*public static List<NeighboringCellInfo> getCellTowers(Context ctx) {
         // Please note that this information may not available on your device.
         // Most of the Samsung devices does not support this method.
         TelephonyManager tm = (TelephonyManager) ctx.getSystemService(Context.TELEPHONY_SERVICE);
@@ -3389,7 +3389,7 @@ public class SontHelperSonty {
         }
         List<NeighboringCellInfo> neighbors = tm.getNeighboringCellInfo();
         return neighbors;
-    }
+    }*/
 }
 
 // COMPRESS UTILITY

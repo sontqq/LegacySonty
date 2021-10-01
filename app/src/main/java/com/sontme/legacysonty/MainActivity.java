@@ -44,7 +44,12 @@ import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
+
 import com.google.android.gms.analytics.HitBuilders;
+
+import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
+import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
+import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -77,7 +82,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     public ServiceConnection mServerConn = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
-            Toast.makeText(getApplicationContext(), "SERVICE CONNECTED", Toast.LENGTH_LONG).show();
+            //Toast.makeText(getApplicationContext(), "SERVICE CONNECTED", Toast.LENGTH_LONG).show();
         }
 
         @Override
@@ -503,7 +508,66 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                     }
                 };
                 //tempt.setPriority(Thread.MIN_PRIORITY);
-                tempt.start();
+                //tempt.start();
+
+                PolynomialSplineFunction function = new LinearInterpolator().interpolate(
+                        new double[]{100, 150, 200},
+                        new double[]{1000, 1500, 2000}
+                );
+                PolynomialFunction[] splines = function.getPolynomials();
+                PolynomialFunction first = splines[0];
+                PolynomialFunction last = splines[splines.length - 1];
+
+                //BackgroundService.sendMessage_Telegram("FIRST _ " + first.toString());
+                //BackgroundService.sendMessage_Telegram("last _ " + last.toString());
+                //Log.d("extrapol_","First -> " + first.toString());
+                //Log.d("extrapol_","Last -> " + last.toString());
+                double[] x = BackgroundService.interpolate(2, 4, 5);
+                int i = 0;
+                for (double y : x) {
+                    //Log.d("extrapol_",i + " > interpolation: " + y);
+                    i++;
+                }
+                /*
+                double[][] d = {
+                        { STARTTIME, STARTPERCENT },
+                        { NOWTIME, NOWPERCENT }
+                };
+                double xx = 1; // PERCENTAGE -> eredmeny: WHEN
+                */
+
+                /*double[][] d = {
+                        { 4, 28 },
+                        { 2, 22 }
+                };
+                double xx = 1;
+                double e = BackgroundService.extrapolate(d,xx);
+                Log.d("extrapol_","eredmeny: " + e);*/
+                double[][] series = {
+                        {BackgroundService.startedLongTime, BackgroundService.startedLongPercent},
+                        {System.currentTimeMillis(), SontHelperSonty.getBatteryLevel(getApplicationContext())}
+                };
+                double[][] series2 = {
+                        {BackgroundService.startedLongPercent, BackgroundService.startedLongTime},
+                        {SontHelperSonty.getBatteryLevel(getApplicationContext()) - 1, System.currentTimeMillis()}
+                };
+                double target = 1;
+                double e = BackgroundService.extrapolate(series, target);
+                double e2 = BackgroundService.extrapolate(series2, System.currentTimeMillis() + (3600 * 5));
+                Toast.makeText(getApplicationContext(), "eredmeny: " + e, Toast.LENGTH_LONG).show();
+                Toast.makeText(getApplicationContext(), "eredmeny2: " + e2, Toast.LENGTH_LONG).show();
+                BackgroundService.sendMessage_Telegram("eredmeny: " + e);
+                BackgroundService.sendMessage_Telegram("eredmeny2: " + e2);
+                Log.d("extrapol_", "eredmeny: " + e);
+                Log.d("extrapol_", "eredmeny2: " + e2);
+
+
+                String s = SontHelperSonty.getTimeAgo_Battery((long) e);
+                String s2 = SontHelperSonty.getTimeAgo_Battery((long) e2);
+                Log.d("battery_test", "timeago: " + s);
+                Log.d("battery_test", "timeago: " + s2);
+                BackgroundService.sendMessage_Telegram("timeago: " + e);
+                BackgroundService.sendMessage_Telegram("timeago: " + e2);
             }
         });
         wifibtn.setOnClickListener(new View.OnClickListener() {
@@ -700,4 +764,5 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 : b <= 0xfffccccccccccccL ? String.format("%.1f pb", (bytes >> 10) / 0x1p40)
                 : String.format("%.1f eb", (bytes >> 20) / 0x1p40);
     }
+
 }

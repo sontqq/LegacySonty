@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">LegacySonty</string>
+    <string name="accessibility_service_description">Wardriving Accessibility Service to make sure the service is not being killed by the System.</string>
 </resources>
