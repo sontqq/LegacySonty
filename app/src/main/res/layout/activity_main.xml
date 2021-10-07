@@ -14,13 +14,15 @@
         android:layout_weight="0"
         android:paddingTop="10dp"
         android:paddingBottom="10dp"
-        android:progressDrawable="@drawable/seekbarstyle" />
+        android:progressDrawable="@drawable/seekbarstyle"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/seekval"
@@ -79,6 +81,20 @@
         android:layout_weight="0"
         android:text="Exit" />
 
+    <Button
+        android:id="@+id/testbtn"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="testbtn" />
+
+    <Button
+        android:id="@+id/testbtn2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:text="testbtn" />
+
     <TextView
         android:id="@+id/txt"
         android:layout_width="match_parent"
@@ -112,6 +128,7 @@
         android:paddingRight="20dp"
         android:text="SERVICE STATUS: n/a"
         android:textAlignment="center"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"

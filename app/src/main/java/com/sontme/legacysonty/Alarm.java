@@ -14,49 +14,6 @@ import android.util.Log;
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
-        if (BackgroundService.android_id_source_device.equals("ANYA_XIAOMI")) {
-            try {
-                BatteryManager bm = (BatteryManager) context.getSystemService(BATTERY_SERVICE);
-                int batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-                String keepaliveResponse =
-                        BackgroundService.Live_Http_GET_SingleRecord.executeRequest(
-                                "sont.sytes.net", 80, "keepalive.php?" +
-                                        BackgroundService.android_id_source_device + "_" +
-                                        BackgroundService.locationToStringAddress(context, BackgroundService.CURRENT_LOCATION).trim() + "_bat:" + batLevel, false,
-                                "source=" + BackgroundService.android_id_source_device
-                        );
-                Log.d("KEEP_ALIVE_", "RESPONSE=" + keepaliveResponse);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        } else {
-            try {
-                Thread keepThread = new Thread() {
-                    @Override
-                    public void run() {
-                        BatteryManager bm = (BatteryManager) context.getSystemService(BATTERY_SERVICE);
-                        int batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-                        String keepaliveResponse =
-                                BackgroundService.Live_Http_GET_SingleRecord.executeRequest(
-                                        "sont.sytes.net", 80, "keepalive.php?" +
-                                                BackgroundService.android_id_source_device + "_" +
-                                                BackgroundService.locationToStringAddress(context, BackgroundService.CURRENT_LOCATION).trim() + "_bat:" + batLevel, false,
-                                        "source=" + BackgroundService.android_id_source_device
-                                );
-                        Log.d("KEEP_ALIVE_", "RESPONSE=" + keepaliveResponse);
-                        super.run();
-                    }
-                };
-                keepThread.start();
-            } catch (Exception e) {
-                //e.printStackTrace();
-            }
-            /*BackgroundService.sendMessage_Telegram(BackgroundService.android_id_source_device +
-                    " Estimated Battery life: " +
-                    SontHelperSonty.getEstimatedBatteryLife(context,
-                    BackgroundService.startedLongTime,
-                    SontHelperSonty.getBatteryLevel(context)));*/
-        }
         Intent serviceIntent = new Intent(context, BackgroundService.class);
         context.startService(serviceIntent);
         Log.d("ALARM_", "RAN!");

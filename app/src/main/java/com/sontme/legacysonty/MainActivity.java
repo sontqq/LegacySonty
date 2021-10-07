@@ -1,12 +1,9 @@
 package com.sontme.legacysonty;
 
 import android.Manifest;
-import android.app.ActivityManager;
 import android.app.AlertDialog;
-import android.app.AppOpsManager;
 import android.app.Dialog;
 import android.app.NotificationManager;
-import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -17,17 +14,41 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.drawable.ColorDrawable;
+import android.location.GnssStatus;
 import android.location.GpsStatus;
 import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.wifi.ScanResult;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.telephony.CellIdentityGsm;
+import android.telephony.CellIdentityLte;
+import android.telephony.CellInfo;
+import android.telephony.CellInfoCdma;
+import android.telephony.CellInfoGsm;
+import android.telephony.CellInfoLte;
+import android.telephony.CellInfoNr;
+import android.telephony.CellInfoTdscdma;
+import android.telephony.CellInfoWcdma;
+import android.telephony.CellLocation;
+import android.telephony.CellSignalStrengthCdma;
+import android.telephony.CellSignalStrengthGsm;
+import android.telephony.CellSignalStrengthLte;
+import android.telephony.CellSignalStrengthNr;
+import android.telephony.CellSignalStrengthTdscdma;
+import android.telephony.CellSignalStrengthWcdma;
+import android.telephony.NeighboringCellInfo;
+import android.telephony.TelephonyManager;
+import android.telephony.gsm.GsmCellLocation;
 import android.text.Html;
 import android.util.Log;
 import android.view.View;
@@ -36,6 +57,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -46,22 +68,24 @@ import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
 
 import com.google.android.gms.analytics.HitBuilders;
+import com.google.gson.JsonArray;
 
-import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
-import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
-import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.stream.Stream;
 
 
-public class MainActivity extends AppCompatActivity implements GpsStatus.Listener {
+public class MainActivity extends AppCompatActivity {
     TextView txt;
     TextView statsTextview;
     SeekBar seekBar;
@@ -190,27 +214,112 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             e.printStackTrace();
         }
 
-        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-        List<ActivityManager.AppTask> tasks = am.getAppTasks();
-        if (tasks != null && tasks.size() > 0)
-            tasks.get(0).setExcludeFromRecents(true);
-        AppOpsManager appOps = (AppOpsManager) getSystemService(Context.APP_OPS_SERVICE);
-        int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
-                android.os.Process.myUid(), getPackageName());
-        if (mode != AppOpsManager.MODE_ALLOWED) {
-            Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-            startActivity(intent);
-        }
-
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             managePermissions();
         }
-        locationManager.addGpsStatusListener(this);
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
+            locationManager.addGpsStatusListener(new GpsStatus.Listener() {
+                @Override
+                public void onGpsStatusChanged(int event) {
+                    TextView txt4 = findViewById(R.id.txt4);
+                    try {
+                        switch (event) {
+                            case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
+                                if (BackgroundService.CURRENT_LOCATION != null) {
+                                    if (ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                            Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                                            ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                                    Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                    }
+                                    long lastUpdate;
+                                    try {
+                                        lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
+                                        lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
+                                    } catch (Exception e) {
+                                        lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
+                                    }
 
-        TextView txt3 = findViewById(R.id.txt3);
-        txt3.setText("Service Status: Unknown2");
-        txt3.setText("Service Status: Unknown2_2");
+                                    if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
+                                            < (10000)) {
+                                        txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() + "\n" +
+                                                "STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
+                                    } else {
+                                        txt4.setText("LOST GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
+                                    }
+                                }
+                                break;
+                            case GpsStatus.GPS_EVENT_FIRST_FIX:
+                                txt4.setText("FIRST LOCATION");
+                                //Toast.makeText(getApplicationContext(), "GPS: FIRST LOCATION", Toast.LENGTH_LONG).show();
+                                break;
+                            case GpsStatus.GPS_EVENT_STARTED:
+                                txt4.setText("GPS STARTED");
+                                //Toast.makeText(getApplicationContext(), "GPS: STARTED", Toast.LENGTH_LONG).show();
+                                break;
+                            case GpsStatus.GPS_EVENT_STOPPED:
+                                txt4.setText("GPS STOPPED");
+                                //Toast.makeText(getApplicationContext(), "GPS: STOPPED", Toast.LENGTH_LONG).show();
+                                break;
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        } else {
+            TextView txt4 = findViewById(R.id.txt4);
+            locationManager.registerGnssStatusCallback(new GnssStatus.Callback() {
+                @Override
+                public void onStarted() {
+                    super.onStarted();
+                    txt4.setText("GPS/GNSS Started " + System.currentTimeMillis());
+                }
+
+                @Override
+                public void onStopped() {
+                    super.onStopped();
+                    //txt4.setText("GPS/GNSS Stopped " + System.currentTimeMillis());
+                }
+
+                @Override
+                public void onFirstFix(int ttffMillis) {
+                    super.onFirstFix(ttffMillis);
+                    txt4.setText("First FIX: " + ttffMillis);
+                }
+
+                @Override
+                public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
+                    super.onSatelliteStatusChanged(status);
+                    try {
+                        String summed_constellation = "";
+                        String summed_for_notif = "";
+                        for (int i = 0; i < status.getSatelliteCount(); i++) {
+                            String type = convertConstellation(status.getConstellationType(i));
+                            summed_constellation = summed_constellation + type + " ";
+                        }
+                        String[] b = summed_constellation.split(" ");
+                        HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
+                        Map<String, Integer> freqMap2 = new HashMap<String, Integer>(freqMap);
+                        for (int i = 0; i < b.length; i++) {
+                            String key = b[i];
+                            int freq = freqMap2.getOrDefault(key, 0);
+                            freqMap2.put(key, ++freq);
+                        }
+                        freqMap2 = SontHelper.sortMapByValue(freqMap2, false); // descending ordering
+                        for (Map.Entry<String, Integer> result : freqMap2.entrySet()) {
+                            summed_for_notif = summed_for_notif + result.getKey() + ": " + result.getValue() + "\n";
+                        }
+
+                        txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
+                                "\nSatellite count: " + status.getSatelliteCount() + "\n" +
+                                summed_for_notif);
+                    } catch (Exception e) {
+                        txt4.setText(e.getMessage());
+                    }
+                }
+            });
+        }
 
         txt = findViewById(R.id.txt);
         statsTextview = findViewById(R.id.txt2);
@@ -230,9 +339,9 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (progress < 1) {
                     seekBar.setProgress(1);
-                    seekval.setText("Executor Pool Core Size: " + 1);
+                    seekval.setText("Executor Pool Core Size: 1");
                     seekBar.setProgress(1);
-                } else if (progress >= 1) {
+                } else {
                     BackgroundService.webRequestExecutor.setCorePoolSize(progress);
                     seekval.setText("Executor Pool Core Size: " + progress);
                 }
@@ -247,100 +356,145 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             }
         });
         Intent i = new Intent(MainActivity.this, BackgroundService.class);
-        startService(i);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, i);
+        } else {
+            startService(i);
+        }
         try {
             bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
         } catch (Exception e) {
             e.printStackTrace();
         }
-        /*final Handler locationRequestHandler = new Handler();
-            locationRequestHandler.postDelayed(new Runnable() {
-                public void run() {
-                    if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                    }
-                    try {
-                        BackgroundService.locationManager.requestSingleUpdate(
-                                LocationManager.NETWORK_PROVIDER,
-                                BackgroundService.locationListener, null);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                    locationRequestHandler.postDelayed(this, 1000);
-                }
-            }, 1000);*/
 
         statsHandler = new Handler();
         statsHandler.postDelayed(statsRunnable = new Runnable() {
             public void run() {
                 try {
                     Intent i = new Intent(MainActivity.this, BackgroundService.class);
-                    startService(i);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        ContextCompat.startForegroundService(getApplicationContext(), i);
+                    } else {
+                        startService(i);
+                    }
                     int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
                     int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
                     int executorServiceMax = BackgroundService.webRequestExecutor.getLargestPoolSize();
                     String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
                             "Executor Pool Queue: " + executorServiceQueueSize + "[" + executorServiceMax + "]" + "\n" +
                             "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
-                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n"
-                                /*"Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length())*/;
-                        txt.setText(threadString);
-                        String stats = "";
+                            "Elapsed: " + BackgroundService.startedAtTime.getElapsed() + "\n"
+                            /*"Bluetooth File: " + roundBandwidth(BackgroundService.readExternalPublic(getApplicationContext(), "BLsession.txt").length())*/;
+                    txt.setText(threadString);
+                    String stats = "";
 
-                        stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
-                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
-                                "New: " + BackgroundService.cnt_new + " " +
-                                "Time: " + BackgroundService.cnt_updated_time + " " +
-                                "BLName: " + BackgroundService.cnt_nameUpdated + " " +
-                                "Str: " + BackgroundService.cnt_updated_str;
+                    stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
+                            "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
+                            "New: " + BackgroundService.cnt_new + " " +
+                            "Time: " + BackgroundService.cnt_updated_time + " " +
+                            "BLName: " + BackgroundService.cnt_nameUpdated + " " +
+                            "Str: " + BackgroundService.cnt_updated_str;
 
-                        statsTextview.setText(stats);
-                        TextView serviceStatusTextview = findViewById(R.id.txt3);
-                        serviceStatusTextview.setText("Service Status: Unknown");
-                        statsHandler.postDelayed(this, 250);
-                    } catch (Exception e) {
-                        int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
-                        int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
-                        String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
-                                "Executor Pool Queue: " + executorServiceQueueSize + "\n" +
-                                "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
-                                "Elapsed: " + BackgroundService.startedAtTime.getElapsed();
-                        txt.setText(threadString);
-                        String stats = "";
+                    statsTextview.setText(stats);
+                    statsHandler.postDelayed(this, 250);
+                } catch (Exception e) {
+                    int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
+                    int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
+                    String threadString = "Active Threads: " + Thread.activeCount() + "\n" +
+                            "Executor Pool Queue: " + executorServiceQueueSize + "\n" +
+                            "Executor Pool Alive: " + executorServiceActiveCount + "\n" +
+                            "Elapsed: " + BackgroundService.startedAtTime.getElapsed();
+                    txt.setText(threadString);
+                    String stats = "";
 
-                        stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
-                                "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
-                                "New: " + BackgroundService.cnt_new + " " +
-                                "Time: " + BackgroundService.cnt_updated_time + " " +
-                                "BLName: " + BackgroundService.cnt_nameUpdated + " " +
-                                "Str: " + BackgroundService.cnt_updated_str;
+                    stats = "Not: " + BackgroundService.cnt_notrecorded + " " +
+                            "Error: " + BackgroundService.Live_Http_GET_SingleRecord.cnt_httpError + " " +
+                            "New: " + BackgroundService.cnt_new + " " +
+                            "Time: " + BackgroundService.cnt_updated_time + " " +
+                            "BLName: " + BackgroundService.cnt_nameUpdated + " " +
+                            "Str: " + BackgroundService.cnt_updated_str;
 
                     statsTextview.setText(stats);
                     TextView serviceStatusTextview = findViewById(R.id.txt3);
-                    serviceStatusTextview.setText("Service Status: Unknown");
+                    //serviceStatusTextview.setText("Service Status: Unknown");
+                    serviceStatusTextview.setVisibility(View.GONE);
                     statsHandler.postDelayed(this, 250);
                 }
             }
         }, 3000);
 
+
         boolean rooted = BackgroundService.RootUtil.isDeviceRooted();
         boolean emulator = BackgroundService.AdminTOOLS.checkIfDeviceIsEmulator(getApplicationContext());
-        statsTextview.setText("ROOTED: " + rooted + "\n" + "EMULATOR: " + emulator);
 
         Button exitbtn = findViewById(R.id.exitbutton);
         Button quebtn = findViewById(R.id.quebutton);
         Button wifibtn = findViewById(R.id.openwifibutton);
         Button blfileburstbtn = findViewById(R.id.blfileburst);
+        Button testbtn = findViewById(R.id.testbtn);
+        Button testbtn2 = findViewById(R.id.testbtn2);
+
+        double[] val = {0.1};
+        testbtn2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                int color = getGreenToRedAndroid(val[0]);
+                testbtn2.setText("Val: " + val[0] + " Color: " + color);
+                testbtn2.setBackgroundColor(color);
+                if (val[0] <= 1 && val[0] >= 0) {
+                    val[0] += 0.1;
+                } else {
+                    val[0] -= 0.1;
+                }
+            }
+
+            int getGreenToRedGradientByValue(int currentValue, int max) {
+                int r = ((255 * currentValue) / max);
+                int g = (255 * (max - currentValue)) / max;
+                int b = 0;
+                return ((r & 0x0ff) << 16) | ((g & 0x0ff) << 8) | (b & 0x0ff);
+            }
+
+            int getGreenToRedAndroid(double value) {
+                return android.graphics.Color.HSVToColor(new float[]{(float) value * 120f, 1f, 1f});
+            }
+        });
+
+        final int[] y = {1};
+        testbtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                int max = 255;
+                int x = mapHpToColor(y[0], max);
+                testbtn.setBackgroundColor(y[0]);
+                testbtn.setText("Value: " + y[0] + " > " + x);
+                Log.d("color_loop", "i:" + y[0] + " > " + x);
+                if (y[0] >= Integer.MAX_VALUE - 1) {
+                    y[0] = 1;
+                } else {
+                    y[0] += Integer.MAX_VALUE / 10;
+                }
+            }
+
+            public int mapHpToColor(int input, int max) {
+                double maxColValue = 255;
+                double redValue = (input > max / 2 ? 1 - 2 * (input - max / 2) / max : 1.0) * maxColValue;
+                double greenValue = (input > max / 2 ? 1.0 : 2 * input / max) * maxColValue;
+                return getIntFromColor((int) redValue, (int) greenValue, 0);
+            }
+
+            public int getIntFromColor(int Red, int Green, int Blue) {
+                Red = (Red << 16) & 0x00FF0000; //Shift red 16-bits and mask out other stuff
+                Green = (Green << 8) & 0x0000FF00; //Shift Green 8-bits and mask out other stuff
+                Blue = Blue & 0x000000FF; //Mask out anything not blue.
+                return 0xFF000000 | Red | Green | Blue; //0xFF000000 for 100% Alpha. Bitwise OR everything together.
+            }
+        });
 
         exitbtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                NotificationManager nm = getSystemService(NotificationManager.class);
-                nm.cancelAll();
-                stopService(new Intent(getApplicationContext(), BackgroundService.class));
-                System.exit(2);
-                System.exit(0);
-                System.exit(1);
-                finish();
+                forceExitApp();
             }
         });
         blfileburstbtn.setOnClickListener(new View.OnClickListener() {
@@ -458,7 +612,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                             public void run() {
                                                 BackgroundService.RequestTaskListener requestTaskListener_bl_filelooper = new BackgroundService.RequestTaskListener() {
                                                     @Override
-                                                    public void update(String string) {
+                                                    public void update(String string, String URL) {
                                                         if (string != null) {
                                                             if (string.contains("new_device")) {
                                                                 Log.d("BL_TEST_", "NEW DEVICE FOUND: " + name + " -> " + address);
@@ -477,7 +631,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                                                             }
                                                             BackgroundService.updateCurrent_secondary(getApplicationContext(),
                                                                     "Bluetooth ANSWER",
-                                                                    name + "\n" + address + "\n" + finalUtf_letter, R.drawable.error_icon);
+                                                                    name + "\n" + address + "\n" + finalUtf_letter, R.drawable.gps);
                                                         }
                                                     }
                                                 };
@@ -510,24 +664,24 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 //tempt.setPriority(Thread.MIN_PRIORITY);
                 //tempt.start();
 
-                PolynomialSplineFunction function = new LinearInterpolator().interpolate(
+                /*PolynomialSplineFunction function = new LinearInterpolator().interpolate(
                         new double[]{100, 150, 200},
                         new double[]{1000, 1500, 2000}
                 );
                 PolynomialFunction[] splines = function.getPolynomials();
                 PolynomialFunction first = splines[0];
                 PolynomialFunction last = splines[splines.length - 1];
-
+                */
                 //BackgroundService.sendMessage_Telegram("FIRST _ " + first.toString());
                 //BackgroundService.sendMessage_Telegram("last _ " + last.toString());
                 //Log.d("extrapol_","First -> " + first.toString());
                 //Log.d("extrapol_","Last -> " + last.toString());
-                double[] x = BackgroundService.interpolate(2, 4, 5);
+                /*double[] x = BackgroundService.interpolate(2, 4, 5);
                 int i = 0;
                 for (double y : x) {
                     //Log.d("extrapol_",i + " > interpolation: " + y);
                     i++;
-                }
+                }*/
                 /*
                 double[][] d = {
                         { STARTTIME, STARTPERCENT },
@@ -543,7 +697,7 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 double xx = 1;
                 double e = BackgroundService.extrapolate(d,xx);
                 Log.d("extrapol_","eredmeny: " + e);*/
-                double[][] series = {
+                /*double[][] series = {
                         {BackgroundService.startedLongTime, BackgroundService.startedLongPercent},
                         {System.currentTimeMillis(), SontHelperSonty.getBatteryLevel(getApplicationContext())}
                 };
@@ -568,6 +722,8 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
                 Log.d("battery_test", "timeago: " + s2);
                 BackgroundService.sendMessage_Telegram("timeago: " + e);
                 BackgroundService.sendMessage_Telegram("timeago: " + e2);
+                */
+
             }
         });
         wifibtn.setOnClickListener(new View.OnClickListener() {
@@ -682,6 +838,47 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
             }
         });
 
+        Handler wifi_strengthHandler = new Handler();
+        wifi_strengthHandler.postDelayed(new Runnable() {
+            public void run() {
+                ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                if (mWifi.isConnected()) {
+                    WifiInfo wifiInfo = BackgroundService.wifiManager.getConnectionInfo();
+                    double level = (100d - (wifiInfo.getRssi() * -1d)) / 100d;
+                    double realLevel = (100d - (wifiInfo.getRssi() * -1d)) / 100d;
+                    int wifiColor = getGreenToRedAndroid(level);
+                    if (level > 100d)
+                        level = 100d;
+                    testbtn.setBackgroundColor(wifiColor);
+                    testbtn.setText(level + " > Color: " + wifiColor + " Time: " + System.currentTimeMillis()
+                            + "\n" + convertIntToHex(wifiColor) + " | " + Integer.toHexString(wifiColor));
+                    try {
+                        getcelldata();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    try {
+                        getcelldata();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    testbtn.setText("WiFi not connected");
+                    testbtn.setBackgroundColor(Color.GRAY);
+                }
+                wifi_strengthHandler.postDelayed(this, 250);
+            }
+
+            String convertIntToHex(int color) {
+                return String.format("#%06X", (0xFFFFFF & color));
+            }
+
+            int getGreenToRedAndroid(double value) {
+                return android.graphics.Color.HSVToColor(new float[]{(float) value * 120f, 1f, 1f});
+            }
+        }, 1000);
+
         try {
             BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
                     .setCategory("Action")
@@ -692,54 +889,103 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
         }
     }
 
-
-    @Override
-    public void onGpsStatusChanged(int event) {
-        TextView txt4 = findViewById(R.id.txt4);
-        try {
-            switch (event) {
-                case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
-                    if (BackgroundService.CURRENT_LOCATION != null) {
-                        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                        }
-                        long lastUpdate;
-                        try {
-                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
-                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
-                        } catch (Exception e) {
-                            lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
-                        }
-
-                        if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
-                                < (10000)) {
-                            txt4.setText("STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
-                        } else {
-                            txt4.setText("LOST GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
-                        }
-                    }
-                    break;
-                case GpsStatus.GPS_EVENT_FIRST_FIX:
-                    txt4.setText("FIRST LOCATION");
-                    //Toast.makeText(getApplicationContext(), "GPS: FIRST LOCATION", Toast.LENGTH_LONG).show();
-                    break;
-                case GpsStatus.GPS_EVENT_STARTED:
-                    txt4.setText("GPS STARTED");
-                    //Toast.makeText(getApplicationContext(), "GPS: STARTED", Toast.LENGTH_LONG).show();
-                    break;
-                case GpsStatus.GPS_EVENT_STOPPED:
-                    txt4.setText("GPS STOPPED");
-                    //Toast.makeText(getApplicationContext(), "GPS: STOPPED", Toast.LENGTH_LONG).show();
-                    break;
+    private void getcelldata() {
+        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        }
+        List<CellInfo> infos = tel.getAllCellInfo();
+        double average = 0d;
+        double sum = 0d;
+        for (int i = 0; i < infos.size(); ++i) {
+            CellInfo info = infos.get(i);
+            if (info instanceof CellInfoGsm) {
+                CellSignalStrengthGsm gsm = ((CellInfoGsm) info).getCellSignalStrength();
+                sum += gsm.getDbm();
+            } else if (info instanceof CellInfoLte) {
+                CellSignalStrengthLte lte = ((CellInfoLte) info).getCellSignalStrength();
+                sum += lte.getDbm();
+            } else if (info instanceof CellInfoCdma) {
+                CellSignalStrengthCdma cdma = ((CellInfoCdma) info).getCellSignalStrength();
+                sum += cdma.getDbm();
+            } else if (info instanceof CellInfoWcdma) {
+                CellSignalStrengthWcdma wcdma = ((CellInfoWcdma) info).getCellSignalStrength();
+                sum += wcdma.getDbm();
+            } else {
+                Log.d("celldata_", "Something else!");
             }
+        }
+        average = (double) sum / (double) infos.size();
+        Button testbtn2 = findViewById(R.id.testbtn2);
+
+        double level = (100d - (average * -1d)) / 100d;
+
+        int bc = getGreenToRedAndroid(level);
+        testbtn2.setBackgroundColor(bc);
+        testbtn2.setText("Average GSM/LTE: " + infos.size() + " / " + average);
+        Log.d("celldata_", "Tower count: " + infos.size() +
+                " Average: " + average);
+
+    }
+
+    String convertIntToHex(int color) {
+        return String.format("#%06X", (0xFFFFFF & color));
+    }
+
+    int getGreenToRedAndroid(double value) {
+        return android.graphics.Color.HSVToColor(new float[]{(float) value * 120f, 1f, 1f});
+    }
+
+    private void forceExitApp() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.cancelAll();
+        try {
+            BackgroundService.locationManager.removeUpdates(BackgroundService.locationListener);
+            locationManager.removeUpdates(BackgroundService.locationListener);
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        stopService(new Intent(getApplicationContext(), BackgroundService.class));
+
+        System.exit(2);
+        System.exit(1);
+        System.exit(0);
+        finish();
+    }
+
+    public String convertConstellation(int i) {
+        switch (i) {
+            case 1:
+                return "GPS";
+            case 2:
+                return "SBAS";
+            case 3:
+                return "GLONASS";
+            case 4:
+                return "QZSS";
+            case 5:
+                return "BEIDOU";
+            case 6:
+                return "GALILEO";
+            case 7:
+                return "IRNSS";
+            case 8:
+                return "COUNT";
+            case 0:
+                return "0";
+            default:
+                return "Unknown";
         }
     }
 
     @Override
     public void onResume() {
         Intent i = new Intent(MainActivity.this, BackgroundService.class);
-        startService(i);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, i);
+        } else {
+            startService(i);
+        }
         bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
 
         try {
@@ -766,3 +1012,5 @@ public class MainActivity extends AppCompatActivity implements GpsStatus.Listene
     }
 
 }
+
+
