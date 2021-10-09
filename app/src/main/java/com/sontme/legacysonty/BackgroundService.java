@@ -179,6 +179,10 @@ public class BackgroundService extends AccessibilityService {
     private static final int HOUR_MILLIS = 60 * MINUTE_MILLIS;
     private static final int DAY_MILLIS = 24 * HOUR_MILLIS;
 
+    public static SontHelperSonty.RandomString randomString;
+    public static ArrayList<String> requestUniqueIDList;
+    public static ArrayList<String> requestUniqueIDList_error;
+
     static int longestCommonSubstring(char X[], char Y[], int m, int n) {
         int LCStuff[][] = new int[m + 1][n + 1];
         int result = 0;
@@ -376,6 +380,9 @@ public class BackgroundService extends AccessibilityService {
     @Override
     public void onCreate() {
         super.onCreate();
+        randomString = new SontHelperSonty.RandomString();
+        requestUniqueIDList = new ArrayList<>();
+        requestUniqueIDList_error = new ArrayList<>();
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, Throwable e) {
@@ -383,6 +390,7 @@ public class BackgroundService extends AccessibilityService {
                 PrintWriter pw = new PrintWriter(sw);
                 e.printStackTrace(pw);
                 String st = sw.toString();
+                /* Possibilities */
                 //String s = Throwables.getStackTraceAsString(e);
                 //String stackTrace = Log.getStackTraceString(exception);
                 //org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(Throwable)
@@ -920,12 +928,7 @@ public class BackgroundService extends AccessibilityService {
             }, 1800000 / 2); // 30 mins
         }
 
-        ActivityManager am = (ActivityManager) this.getSystemService(ACTIVITY_SERVICE);
-        List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(100);
 
-        for (ActivityManager.RunningTaskInfo act : tasks) {
-            Log.d("activity_test_", "--> " + act.baseActivity.flattenToShortString() + " > " + act.topActivity.flattenToShortString() + " > " + act.topActivity.toShortString());
-        }
 
     }
 
@@ -1696,17 +1699,18 @@ public class BackgroundService extends AccessibilityService {
     }
 
     public static class Live_Http_GET_SingleRecord {
-
         public static long bytesSent;
         public static long bytesReceived;
-
         public static String lastHandledURL;
         public static String lastHttpResponseBody;
-
         public static int cnt_httpError;
+        public static String UNIQUE_ID = BackgroundService.randomString.nextString();
+
 
         public static String executeRequest(final String host, final int port, final String URL,
-                                            final boolean METHOD_POST, final String postData) {
+                                            final boolean METHOD_POST,
+                                            final String postData) {
+            requestUniqueIDList.add(UNIQUE_ID);
             lastHandledURL = host + ":" + port + URL;
             Socket socket;
             try {
@@ -1761,8 +1765,10 @@ public class BackgroundService extends AccessibilityService {
                 lastHttpResponseBody = full_str;
                 bytesReceived += full_str.length();
                 //Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
+                requestUniqueIDList.remove(UNIQUE_ID);
                 return full_str;
             } catch (Exception e) {
+                requestUniqueIDList_error.add(UNIQUE_ID);
                 cnt_httpError++;
                 Runnable retryRunnable = new Runnable() {
                     @Override
@@ -1898,6 +1904,7 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
+    ////////////////////////////////////
     public static class TimeElapsedUtil {
 
 

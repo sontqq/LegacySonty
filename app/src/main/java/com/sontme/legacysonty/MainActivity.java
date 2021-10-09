@@ -313,6 +313,8 @@ public class MainActivity extends AppCompatActivity {
                             summed_constellation = summed_constellation + type + " ";
                         }
                         String[] b = summed_constellation.split(" ");
+
+                        HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
                         Set<String> mySet = new HashSet<String>(Arrays.asList(b));
                         for (String s : mySet) {
                             summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s);
@@ -440,6 +442,18 @@ public class MainActivity extends AppCompatActivity {
         testbtn3.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                ArrayList<String> intersect = SontHelper.intersectionOfLists(BackgroundService.requestUniqueIDList, BackgroundService.requestUniqueIDList_error);
+                Log.d("intersect_", "uni size: " + BackgroundService.requestUniqueIDList.size());
+                Log.d("intersect_", "uni_error size: " + BackgroundService.requestUniqueIDList_error.size());
+
+                for (String s : intersect) {
+                    Log.d("intersect_", "this -> " + s);
+                }
+                if (intersect.size() >= 1) {
+                    Log.d("intersect_", "count: " + intersect.size());
+                } else {
+                    Log.d("intersect_", "empty intersect");
+                }
             }
         });
         double[] val = {0.1};
@@ -858,10 +872,15 @@ public class MainActivity extends AppCompatActivity {
                 //String a = String.valueOf(new ArgbEvaluator().evaluate(0.75f, 0x00ff00, 0xff0000));
                 float x = bouncer.next();
                 int y = ColorUtils.blendARGB(Color.RED, Color.BLUE, x);
+                int y2 = ColorUtils.blendARGB(Color.GREEN, Color.MAGENTA, x);
+                int y3 = ColorUtils.blendARGB(Color.YELLOW, Color.CYAN, x);
                 window.setStatusBarColor(y);
-                //Log.d("status_color","x: " + x + " y: " + y);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    window.setNavigationBarDividerColor(y3);
+                }
+                window.setNavigationBarColor(y2);
 
-                notif_handler.postDelayed(this, 10);
+                notif_handler.postDelayed(this, 100);
             }
         }, 1000);
 
@@ -887,13 +906,13 @@ public class MainActivity extends AppCompatActivity {
                 if (mWifi.isConnected()) {
                     WifiInfo wifiInfo = BackgroundService.wifiManager.getConnectionInfo();
                     double level = (100d - (wifiInfo.getRssi() * -1d)) / 100d;
-                    double realLevel = (100d - (wifiInfo.getRssi() * -1d)) / 100d;
+                    double percentLevel = (100d - (wifiInfo.getRssi() * -1d)) / 100d;
                     int wifiColor = getGreenToRedAndroid(level);
                     if (level > 100d)
                         level = 100d;
                     testbtn.setBackgroundColor(wifiColor);
-                    testbtn.setText(level + " > Color: " + wifiColor + " Time: " + System.currentTimeMillis()
-                            + "\n" + convertIntToHex(wifiColor));
+                    testbtn.setText("[" + wifiInfo.getRssi() + "] > Color: "
+                            + wifiColor + " Time: " + System.currentTimeMillis());
 
                     getcelldata();
                 } else {
@@ -1003,7 +1022,7 @@ public class MainActivity extends AppCompatActivity {
         int bc = getGreenToRedAndroid(level);
         testbtn2.setBackgroundColor(bc);
 
-        testbtn2.setText("Cell Towers: " + infos.size() + " / " + average + "\n" +
+        testbtn2.setText("Cell Towers: " + infos.size() + " / Average: [" + average + "]\n" +
                 summed_for_notif);
     }
 

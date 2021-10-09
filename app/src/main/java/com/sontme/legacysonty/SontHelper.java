@@ -3,6 +3,7 @@ package com.sontme.legacysonty;
 import static android.os.Process.THREAD_PRIORITY_AUDIO;
 import static android.os.Process.setThreadPriority;
 
+import android.app.Instrumentation;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
@@ -80,6 +81,19 @@ import javax.crypto.SecretKey;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
+
+    public static <T> ArrayList<T> intersectionOfLists(ArrayList<T> list1, ArrayList<T> list2) {
+        ArrayList<T> list = new ArrayList<T>();
+
+        for (T t : list1) {
+            if (list2.contains(t)) {
+                list.add(t);
+            }
+        }
+
+        return list;
+    }
+
     public static class Bounce {
         private final float from;
         private final float to;
