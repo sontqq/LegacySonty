@@ -4,6 +4,7 @@ import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.getSharedPref;
 import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.saveSharedPref;
 import static com.sontme.legacysonty.SontHelperSonty.getCurrentTimeHumanReadable;
 import static com.sontme.legacysonty.SontHelperSonty.getDeviceName;
+import static com.sontme.legacysonty.SontHelperSonty.invertColor;
 
 import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
@@ -20,10 +21,15 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothSocket;
+import android.companion.AssociationRequest;
+import android.companion.BluetoothDeviceFilter;
+import android.companion.BluetoothLeDeviceFilter;
+import android.companion.CompanionDeviceManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Address;
@@ -52,6 +58,8 @@ import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.text.format.Formatter;
 import android.util.Log;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
 
@@ -67,6 +75,7 @@ import com.androidnetworking.interfaces.StringRequestListener;
 import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
+import com.google.common.base.Throwables;
 import com.google.common.io.Files;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
@@ -81,6 +90,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
@@ -114,10 +124,10 @@ import cz.msebera.android.httpclient.Header;
 import cz.msebera.android.httpclient.conn.util.InetAddressUtils;
 
 public class BackgroundService extends AccessibilityService {
-
+    //region INITREGION
     public static String android_id;
     public static String android_id_source_device;
-
+    public static long lastokscan = 0;
     public static WifiManager wifiManager;
     public static ArrayList<Runnable> webReqRunnablesList;
     public static ThreadPoolExecutor webRequestExecutor;
@@ -224,12 +234,20 @@ public class BackgroundService extends AccessibilityService {
     BroadcastReceiver wifiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            boolean newdata = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false);
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if (!wifiManager.isScanThrottleEnabled())
-                        wifiManager.startScan();
+                    if (!wifiManager.isScanThrottleEnabled()) {
+                        boolean succ = wifiManager.startScan();
+                        if (succ == true) {
+                            lastokscan = System.currentTimeMillis();
+                        }
+                    }
                 } else {
-                    wifiManager.startScan();
+                    boolean succ = wifiManager.startScan();
+                    if (succ == true) {
+                        lastokscan = System.currentTimeMillis();
+                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -353,6 +371,7 @@ public class BackgroundService extends AccessibilityService {
             }
         }
     }
+    //endregion
 
     @Override
     public void onCreate() {
@@ -360,10 +379,16 @@ public class BackgroundService extends AccessibilityService {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread thread, Throwable e) {
-                e.printStackTrace();
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                e.printStackTrace(pw);
+                String st = sw.toString();
+                //String s = Throwables.getStackTraceAsString(e);
+                //String stackTrace = Log.getStackTraceString(exception);
+                //org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(Throwable)
                 sendMessage_Telegram("Unhandled Exception! " + android_id_source_device);
-                sendMessage_Telegram("Unhandled Exception! " + thread.getStackTrace()[0]);
                 sendMessage_Telegram("Unhandled Exception! " + e.getMessage());
+                sendMessage_Telegram("Unhandled Exception! " + st);
             }
         });
         startedAtTime = new TimeElapsedUtil();
@@ -738,10 +763,16 @@ public class BackgroundService extends AccessibilityService {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (!wifiManager.isScanThrottleEnabled())
-                    wifiManager.startScan();
+                if (!wifiManager.isScanThrottleEnabled()) {
+                    boolean succ = wifiManager.startScan();
+                    if (succ == true)
+                        lastokscan = System.currentTimeMillis();
+                }
             } else {
-                wifiManager.startScan();
+                boolean succ = wifiManager.startScan();
+                if (succ == true) {
+                    lastokscan = System.currentTimeMillis();
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -752,10 +783,17 @@ public class BackgroundService extends AccessibilityService {
             public void run() {
                 WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if (!wifiManager.isScanThrottleEnabled())
-                        wifiManager.startScan();
+                    if (!wifiManager.isScanThrottleEnabled()) {
+                        boolean succ = wifiManager.startScan();
+                        if (succ == true) {
+                            lastokscan = System.currentTimeMillis();
+                        }
+                    }
                 } else {
-                    wifiManager.startScan();
+                    boolean succ = wifiManager.startScan();
+                    if (succ == true) {
+                        lastokscan = System.currentTimeMillis();
+                    }
                 }
                 handler.postDelayed(this, 3000);
             }
@@ -840,12 +878,9 @@ public class BackgroundService extends AccessibilityService {
         Collection<String> values = map.get("ford");
         List list = new ArrayList(values);
         Log.d("multimap_0_", String.valueOf(list.get(0)));
-        Log.d("multimap_1_", String.valueOf(list.get(1)));*/
-
-        //HashMap<String, ArrayList<String>> multiValueMap = new HashMap<String, ArrayList<String>>();
-
-        //updateCurrent_exception(getApplicationContext(),"WiFi","Connect Strongest");
-
+        Log.d("multimap_1_", String.valueOf(list.get(1)));
+        HashMap<String, ArrayList<String>> multiValueMap = new HashMap<String, ArrayList<String>>();
+        */
         if (android_id_source_device.equals("ANYA_XIAOMI")) {
             final Handler handler_restarter = new Handler();
             handler_restarter.postDelayed(new Runnable() {
@@ -883,6 +918,13 @@ public class BackgroundService extends AccessibilityService {
                     handler_restarter.postDelayed(this, 1800000 / 2);
                 }
             }, 1800000 / 2); // 30 mins
+        }
+
+        ActivityManager am = (ActivityManager) this.getSystemService(ACTIVITY_SERVICE);
+        List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(100);
+
+        for (ActivityManager.RunningTaskInfo act : tasks) {
+            Log.d("activity_test_", "--> " + act.baseActivity.flattenToShortString() + " > " + act.topActivity.flattenToShortString() + " > " + act.topActivity.toShortString());
         }
 
     }

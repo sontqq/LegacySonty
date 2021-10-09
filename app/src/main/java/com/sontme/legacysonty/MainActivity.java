@@ -1,13 +1,20 @@
 package com.sontme.legacysonty;
 
+import static com.sontme.legacysonty.SontHelperSonty.invertColor;
+
 import android.Manifest;
+import android.animation.ArgbEvaluator;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.NotificationManager;
+import android.companion.AssociationRequest;
+import android.companion.BluetoothLeDeviceFilter;
+import android.companion.CompanionDeviceManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -17,6 +24,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.ColorDrawable;
 import android.location.GnssStatus;
 import android.location.GpsStatus;
+import android.location.Location;
 import android.location.LocationManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -52,6 +60,8 @@ import android.telephony.gsm.GsmCellLocation;
 import android.text.Html;
 import android.util.Log;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -61,6 +71,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.ColorUtils;
 
 import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
@@ -79,9 +90,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.stream.Stream;
 
 
@@ -299,16 +313,9 @@ public class MainActivity extends AppCompatActivity {
                             summed_constellation = summed_constellation + type + " ";
                         }
                         String[] b = summed_constellation.split(" ");
-                        HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
-                        Map<String, Integer> freqMap2 = new HashMap<String, Integer>(freqMap);
-                        for (int i = 0; i < b.length; i++) {
-                            String key = b[i];
-                            int freq = freqMap2.getOrDefault(key, 0);
-                            freqMap2.put(key, ++freq);
-                        }
-                        freqMap2 = SontHelper.sortMapByValue(freqMap2, false); // descending ordering
-                        for (Map.Entry<String, Integer> result : freqMap2.entrySet()) {
-                            summed_for_notif = summed_for_notif + result.getKey() + ": " + result.getValue() + "\n";
+                        Set<String> mySet = new HashSet<String>(Arrays.asList(b));
+                        for (String s : mySet) {
+                            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s);
                         }
 
                         txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
@@ -413,11 +420,7 @@ public class MainActivity extends AppCompatActivity {
                             "Time: " + BackgroundService.cnt_updated_time + " " +
                             "BLName: " + BackgroundService.cnt_nameUpdated + " " +
                             "Str: " + BackgroundService.cnt_updated_str;
-
                     statsTextview.setText(stats);
-                    TextView serviceStatusTextview = findViewById(R.id.txt3);
-                    //serviceStatusTextview.setText("Service Status: Unknown");
-                    serviceStatusTextview.setVisibility(View.GONE);
                     statsHandler.postDelayed(this, 250);
                 }
             }
@@ -433,7 +436,12 @@ public class MainActivity extends AppCompatActivity {
         Button blfileburstbtn = findViewById(R.id.blfileburst);
         Button testbtn = findViewById(R.id.testbtn);
         Button testbtn2 = findViewById(R.id.testbtn2);
-
+        Button testbtn3 = findViewById(R.id.testbtn3);
+        testbtn3.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+            }
+        });
         double[] val = {0.1};
         testbtn2.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -838,9 +846,42 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        Handler notif_handler = new Handler();
+        notif_handler.postDelayed(new Runnable() {
+            SontHelper.Bounce bouncer = new SontHelper.Bounce(0f, 1f, 0.1f);
+
+            public void run() {
+                Window window = MainActivity.this.getWindow();
+                window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+                window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                //Random rnd = new Random();
+                //String a = String.valueOf(new ArgbEvaluator().evaluate(0.75f, 0x00ff00, 0xff0000));
+                float x = bouncer.next();
+                int y = ColorUtils.blendARGB(Color.RED, Color.BLUE, x);
+                window.setStatusBarColor(y);
+                //Log.d("status_color","x: " + x + " y: " + y);
+
+                notif_handler.postDelayed(this, 10);
+            }
+        }, 1000);
+
         Handler wifi_strengthHandler = new Handler();
         wifi_strengthHandler.postDelayed(new Runnable() {
             public void run() {
+                try {
+                    if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    }
+                    Location lastlocation = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+                    if (lastlocation == null)
+                        lastlocation = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                    long time1 = lastlocation.getTime();
+                    testbtn3.setText("Last OK WiFi Scan: " +
+                            BackgroundService.getTimeAgo(BackgroundService.lastokscan) + "\n" +
+                            "Last Location: " + BackgroundService.getTimeAgo(time1));
+                } catch (Exception e) {
+                    testbtn3.setText(e.getMessage());
+                    e.printStackTrace();
+                }
                 ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                 NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
                 if (mWifi.isConnected()) {
@@ -852,18 +893,13 @@ public class MainActivity extends AppCompatActivity {
                         level = 100d;
                     testbtn.setBackgroundColor(wifiColor);
                     testbtn.setText(level + " > Color: " + wifiColor + " Time: " + System.currentTimeMillis()
-                            + "\n" + convertIntToHex(wifiColor) + " | " + Integer.toHexString(wifiColor));
-                    try {
-                        getcelldata();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                            + "\n" + convertIntToHex(wifiColor));
+
+                    getcelldata();
                 } else {
-                    try {
-                        getcelldata();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+
+                    getcelldata();
+
                     testbtn.setText("WiFi not connected");
                     testbtn.setBackgroundColor(Color.GRAY);
                 }
@@ -885,8 +921,38 @@ public class MainActivity extends AppCompatActivity {
                     .setAction("MainActivity Started")
                     .build());
         } catch (Exception e) {
+        }
+
+        try {
+            CompanionDeviceManager cdm = null;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+
+                cdm = (CompanionDeviceManager) getSystemService(Context.COMPANION_DEVICE_SERVICE);
+                BluetoothLeDeviceFilter deviceFilter = new BluetoothLeDeviceFilter.Builder().build();
+                AssociationRequest pairingRequest = new AssociationRequest.Builder()
+                        .addDeviceFilter(deviceFilter)
+                        .build();
+                List<String> associations = cdm.getAssociations();
+                for (String a : associations) {
+                    Log.d("cdm_", "assoc: " + a);
+                }
+                cdm.associate(pairingRequest, new CompanionDeviceManager.Callback() {
+                    @Override
+                    public void onDeviceFound(IntentSender chooserLauncher) {
+                        Log.d("cdm_", "found: " + chooserLauncher.toString());
+
+                    }
+
+                    @Override
+                    public void onFailure(CharSequence error) {
+                        Log.d("cdm_", "error: " + error.toString());
+                    }
+                }, null);
+            }
+        } catch (Exception e) {
             e.printStackTrace();
         }
+
     }
 
     private void getcelldata() {
@@ -896,24 +962,39 @@ public class MainActivity extends AppCompatActivity {
         List<CellInfo> infos = tel.getAllCellInfo();
         double average = 0d;
         double sum = 0d;
+        String summed_tower = "";
+        String summed_for_notif = "";
         for (int i = 0; i < infos.size(); ++i) {
             CellInfo info = infos.get(i);
             if (info instanceof CellInfoGsm) {
                 CellSignalStrengthGsm gsm = ((CellInfoGsm) info).getCellSignalStrength();
                 sum += gsm.getDbm();
+                summed_tower = summed_tower + "gsm" + " ";
             } else if (info instanceof CellInfoLte) {
                 CellSignalStrengthLte lte = ((CellInfoLte) info).getCellSignalStrength();
                 sum += lte.getDbm();
+                summed_tower = summed_tower + "lte" + " ";
             } else if (info instanceof CellInfoCdma) {
                 CellSignalStrengthCdma cdma = ((CellInfoCdma) info).getCellSignalStrength();
                 sum += cdma.getDbm();
+                summed_tower = summed_tower + "cdma" + " ";
             } else if (info instanceof CellInfoWcdma) {
                 CellSignalStrengthWcdma wcdma = ((CellInfoWcdma) info).getCellSignalStrength();
                 sum += wcdma.getDbm();
+                summed_tower = summed_tower + "wcdma" + " ";
             } else {
                 Log.d("celldata_", "Something else!");
+                summed_tower = summed_tower + "other" + " ";
             }
         }
+
+        String[] b = summed_tower.split(" ");
+        HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
+        Set<String> mySet = new HashSet<String>(Arrays.asList(b));
+        for (String s : mySet) {
+            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s);
+        }
+
         average = (double) sum / (double) infos.size();
         Button testbtn2 = findViewById(R.id.testbtn2);
 
@@ -921,10 +1002,9 @@ public class MainActivity extends AppCompatActivity {
 
         int bc = getGreenToRedAndroid(level);
         testbtn2.setBackgroundColor(bc);
-        testbtn2.setText("Average GSM/LTE: " + infos.size() + " / " + average);
-        Log.d("celldata_", "Tower count: " + infos.size() +
-                " Average: " + average);
 
+        testbtn2.setText("Cell Towers: " + infos.size() + " / " + average + "\n" +
+                summed_for_notif);
     }
 
     String convertIntToHex(int color) {
@@ -994,7 +1074,7 @@ public class MainActivity extends AppCompatActivity {
                     .setAction("MainActivity onResume")
                     .build());
         } catch (Exception e) {
-            e.printStackTrace();
+            //e.printStackTrace();
         }
 
         super.onResume();

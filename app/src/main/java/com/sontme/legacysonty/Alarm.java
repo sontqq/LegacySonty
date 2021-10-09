@@ -3,19 +3,35 @@ package com.sontme.legacysonty;
 import static android.content.Context.ALARM_SERVICE;
 import static android.content.Context.BATTERY_SERVICE;
 
+import static com.sontme.legacysonty.SontHelperSonty.invertColor;
+
+import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.BatteryManager;
+import android.os.Build;
 import android.util.Log;
+import android.view.Window;
+import android.view.WindowManager;
+
+import androidx.core.content.ContextCompat;
+
+import java.util.Random;
 
 public class Alarm extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent2) {
+
         Intent serviceIntent = new Intent(context, BackgroundService.class);
-        context.startService(serviceIntent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(context, serviceIntent);
+        } else {
+            context.startService(serviceIntent);
+        }
         Log.d("ALARM_", "RAN!");
         AlarmManager alarmMgr = (AlarmManager) context.getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(context, Alarm.class);

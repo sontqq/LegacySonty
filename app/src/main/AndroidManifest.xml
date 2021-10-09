@@ -4,7 +4,15 @@
     package="com.sontme.legacysonty"
     android:installLocation="internalOnly">
 
+    <uses-permission android:name="android.permission.GET_TASKS" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="Manifest.permission.BIND_COMPANION_DEVICE_SERVICE" />
+    <uses-permission android:name="Manifest.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
+
+    <uses-feature android:name="android.software.companion_device_setup" />
+
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.Manifest.permission.NETWORK_SETTINGS" />
     <uses-permission android:name="android.Manifest.permission.READ_PHONE_STATE" />
 
     <uses-permission

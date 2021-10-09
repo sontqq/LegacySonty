@@ -67,6 +67,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -76,12 +77,31 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
+    public static class Bounce {
+        private final float from;
+        private final float to;
 
-    public static Map<String, Integer> sortMapByValue(Map<String, Integer> unsortMap, final boolean order) {
+        private float current;
+        private float step;
+
+        public Bounce(float from, float to, float step) {
+            if (step > to - from || to <= from)
+                throw new IllegalArgumentException("invalid arguments");
+            this.from = from;
+            this.to = to;
+            this.current = from - step;
+            this.step = step;
+        }
+
+        public synchronized float next() {
+            if (current + step > to || current + step < from) step = -step;
+            return current += step;
+        }
+    }
+    /*public static Set<String> sortMapByValue(Set<String> unsortMap, final boolean order) {
         List<Map.Entry<String, Integer>> list = new LinkedList<Map.Entry<String, Integer>>(unsortMap.entrySet());
         Collections.sort(list, new Comparator<Map.Entry<String, Integer>>() {
             public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
@@ -97,7 +117,7 @@ public class SontHelper {
             sortedMap.put(entry.getKey(), entry.getValue());
         }
         return sortedMap;
-    }
+    }*/
 
     public static List<String> extractUrls(String text) {
         List<String> containedUrls = new ArrayList<String>();
