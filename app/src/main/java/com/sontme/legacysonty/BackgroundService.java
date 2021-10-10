@@ -26,6 +26,7 @@ import android.companion.BluetoothDeviceFilter;
 import android.companion.BluetoothLeDeviceFilter;
 import android.companion.CompanionDeviceManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -38,6 +39,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
+import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.TrafficStats;
@@ -83,6 +85,7 @@ import com.loopj.android.http.AsyncHttpResponseHandler;
 import org.apache.commons.math3.analysis.interpolation.LinearInterpolator;
 import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
 import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
+import org.ocpsoft.prettytime.PrettyTime;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -90,6 +93,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.Serializable;
 import java.io.StringWriter;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -529,7 +533,6 @@ public class BackgroundService extends AccessibilityService {
                 new LinkedBlockingQueue<Runnable>()) {
             @Override
             protected void beforeExecute(Thread t, Runnable r) {
-                Log.d("CTPE_", "Before_ Thread: " + t.getName());
                 executor_before++;
                 super.beforeExecute(t, r);
             }
@@ -543,13 +546,11 @@ public class BackgroundService extends AccessibilityService {
             @Override
             public void execute(Runnable command) {
                 executor_executed++;
-                Log.d("CTPE_", "Execute_");
                 super.execute(command);
             }
 
             @Override
             public void shutdown() {
-                Log.d("CTPE_", "Shutdown_");
                 super.shutdown();
             }
         };
@@ -590,19 +591,18 @@ public class BackgroundService extends AccessibilityService {
                                                 "&long=" + location.getLongitude() +
                                                 "&lat=" + location.getLatitude() +
                                                 "&channel=" + accessPoint.frequency;
-                                Runnable webReqRunnable_wifi = new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        RequestTask requestTask = new RequestTask();
-                                        RequestTaskListener requestTaskListener_wifi = new RequestTaskListener() {
-                                            @Override
-                                            public void update(String string, String URL) {
-                                                if (string != null) {
-                                                    analyticsTracker.send(new HitBuilders.EventBuilder()
-                                                            .setCategory("Action")
-                                                            .setAction("WiFi Answer")
-                                                            .build());
-                                                    try {
+
+                                Runnable webReqRunnable_wifi = (Runnable & Serializable) () -> {
+                                    RequestTask requestTask = new RequestTask();
+                                    RequestTaskListener requestTaskListener_wifi = new RequestTaskListener() {
+                                        @Override
+                                        public void update(String string, String URL) {
+                                            if (string != null) {
+                                                analyticsTracker.send(new HitBuilders.EventBuilder()
+                                                        .setCategory("Action")
+                                                        .setAction("WiFi Answer")
+                                                        .build());
+                                                try {
                                                         if (string.contains("not_recorded")) {
                                                             cnt_notrecorded++;
                                                         } else if (string.contains("new")) {
@@ -691,7 +691,6 @@ public class BackgroundService extends AccessibilityService {
                                         };
                                         requestTask.addListener(requestTaskListener_wifi);
                                         requestTask.execute(reqBody);
-                                    }
                                 };
                                 BackgroundService.webRequestExecutor.submit(webReqRunnable_wifi);
                                 webReqRunnablesList.add(webReqRunnable_wifi);
@@ -708,6 +707,8 @@ public class BackgroundService extends AccessibilityService {
                     e.printStackTrace();
                 }
             }
+
+            ;
 
             @Override
             public void onStatusChanged(String provider, int status, Bundle extras) {
@@ -994,19 +995,17 @@ public class BackgroundService extends AccessibilityService {
                                 "&long=" + CURRENT_LOCATION.getLongitude() +
                                 "&lat=" + CURRENT_LOCATION.getLatitude();
 
-                Runnable webReqRunnable_bl = new Runnable() {
-                    @Override
-                    public void run() {
-                        RequestTaskListener requestTaskListener_bl = new RequestTaskListener() {
-                            @Override
-                            public void update(String string, String URL) {
-                                if (string != null) {
-                                    analyticsTracker.send(new HitBuilders.EventBuilder()
-                                            .setCategory("Action")
-                                            .setAction("Bluetooth Answer")
-                                            .build());
-                                    if (string.contains("new_device")) {
-                                        vibrate(getApplicationContext());
+                Runnable webReqRunnable_bl = (Runnable & Serializable) () -> {
+                    RequestTaskListener requestTaskListener_bl = new RequestTaskListener() {
+                        @Override
+                        public void update(String string, String URL) {
+                            if (string != null) {
+                                analyticsTracker.send(new HitBuilders.EventBuilder()
+                                        .setCategory("Action")
+                                        .setAction("Bluetooth Answer")
+                                        .build());
+                                if (string.contains("new_device")) {
+                                    vibrate(getApplicationContext());
                                         Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
                                         cnt_new++;
                                         cnt_new_bl++;
@@ -1041,24 +1040,21 @@ public class BackgroundService extends AccessibilityService {
                         RequestTask_Bluetooth requestTask_bl = new RequestTask_Bluetooth();
                         requestTask_bl.addListener(requestTaskListener_bl);
                         requestTask_bl.execute(reqBody);
-                    }
                 };
                 Future<?> future = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl);
                 webReqRunnablesList.add(webReqRunnable_bl);
 
-                Runnable webReqRunnable_bl_indi = new Runnable() {
-                    @Override
-                    public void run() {
-                        RequestTaskListener_indi requestTaskListener_bl_indi =
-                                new RequestTaskListener_indi() {
-                                    @Override
-                                    public void update(String string, String URL) {
-                                        if (string != null) {
-                                            analyticsTracker.send(new HitBuilders.EventBuilder()
-                                                    .setCategory("Action")
-                                                    .setAction("Bluetooth Answer")
-                                                    .build());
-                                            if (string.contains("new_device")) {
+                Runnable webReqRunnable_bl_indi = (Runnable & Serializable) () -> {
+                    RequestTaskListener_indi requestTaskListener_bl_indi =
+                            new RequestTaskListener_indi() {
+                                @Override
+                                public void update(String string, String URL) {
+                                    if (string != null) {
+                                        analyticsTracker.send(new HitBuilders.EventBuilder()
+                                                .setCategory("Action")
+                                                .setAction("Bluetooth Answer")
+                                                .build());
+                                        if (string.contains("new_device")) {
                                                 vibrate(getApplicationContext());
                                                 Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
                                                 cnt_new++;
@@ -1094,7 +1090,6 @@ public class BackgroundService extends AccessibilityService {
                         RequestTask_Bluetooth_indi requestTask_bl_indi = new RequestTask_Bluetooth_indi();
                         requestTask_bl_indi.addListener(requestTaskListener_bl_indi);
                         requestTask_bl_indi.execute(reqBody);
-                    }
                 };
                 Future<?> future_indi = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl_indi);
                 webReqRunnablesList.add(webReqRunnable_bl_indi);
@@ -1111,7 +1106,6 @@ public class BackgroundService extends AccessibilityService {
             return false;
         }
     }
-
 
     public static ArrayList<ScanResult> getStrongestOpenAp(List<ScanResult> scanResult) {
         Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
@@ -1698,7 +1692,8 @@ public class BackgroundService extends AccessibilityService {
         return strAdd;
     }
 
-    public static class Live_Http_GET_SingleRecord {
+    //region HTTP Classes
+    public static class Live_Http_GET_SingleRecord implements Serializable {
         public static long bytesSent;
         public static long bytesReceived;
         public static String lastHandledURL;
@@ -1770,14 +1765,12 @@ public class BackgroundService extends AccessibilityService {
             } catch (Exception e) {
                 requestUniqueIDList_error.add(UNIQUE_ID);
                 cnt_httpError++;
-                Runnable retryRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        executeRequest(host, port, URL, METHOD_POST, postData);
-                    }
+                Runnable retryRunnable = (Runnable & Serializable) () -> {
+                    executeRequest(host, port, URL, METHOD_POST, postData);
                 };
                 webRequestExecutor.submit(retryRunnable);
-                e.printStackTrace();
+                //e.printStackTrace();
+                Log.d("Live_Http_GET_SingleRecord", "network error");
                 return null;
             }
         }
@@ -1904,7 +1897,8 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
-    ////////////////////////////////////
+    //endregion
+
     public static class TimeElapsedUtil {
 
 

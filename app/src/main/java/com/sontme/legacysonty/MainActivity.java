@@ -85,10 +85,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -894,9 +896,26 @@ public class MainActivity extends AppCompatActivity {
                     if (lastlocation == null)
                         lastlocation = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
                     long time1 = lastlocation.getTime();
-                    testbtn3.setText("Last OK WiFi Scan: " +
-                            BackgroundService.getTimeAgo(BackgroundService.lastokscan) + "\n" +
-                            "Last Location: " + BackgroundService.getTimeAgo(time1));
+                    String timeago = BackgroundService.getTimeAgo(BackgroundService.lastokscan);
+                    String timeago2 = BackgroundService.getTimeAgo(time1);
+                    if (timeago.equalsIgnoreCase("just now") || // need to modify
+                            timeago2.equalsIgnoreCase("just now")) {
+                        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("ss");
+                        Date date1 = new Date(System.currentTimeMillis() - BackgroundService.lastokscan);
+                        String val1 = simpleDateFormat.format(date1);
+                        if (val1.startsWith("0"))
+                            val1 = val1.substring(1);
+                        Date date2 = new Date(System.currentTimeMillis() - time1);
+                        String val2 = simpleDateFormat.format(date2);
+                        if (val2.startsWith("0"))
+                            val2 = val2.substring(1);
+                        testbtn3.setText("Last OK WiFi Scan: " +
+                                val1 + " seconds ago\n" + "Last Location: " + val2 + " seconds ago");
+                    } else {
+                        testbtn3.setText("Last OK WiFi Scan: " +
+                                BackgroundService.getTimeAgo(BackgroundService.lastokscan) + "\n" +
+                                "Last Location: " + BackgroundService.getTimeAgo(time1));
+                    }
                 } catch (Exception e) {
                     testbtn3.setText(e.getMessage());
                     e.printStackTrace();

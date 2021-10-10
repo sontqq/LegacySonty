@@ -82,6 +82,20 @@ import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
 
+    public static class TestClass {
+        public static void testmethod() {
+            Runnable webReqRunnable_wifi = new Runnable() {
+                @Override
+                public void run() {
+                }
+            };
+
+            Runnable task3 = (Runnable & Serializable) () -> {
+                System.out.println(Thread.currentThread().getName() + " is running");
+            };
+        }
+    }
+
     public static <T> ArrayList<T> intersectionOfLists(ArrayList<T> list1, ArrayList<T> list2) {
         ArrayList<T> list = new ArrayList<T>();
 
