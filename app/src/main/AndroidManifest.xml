@@ -4,6 +4,9 @@
     package="com.sontme.legacysonty"
     android:installLocation="internalOnly">
 
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_PRIVILEGED"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.GET_TASKS" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="Manifest.permission.BIND_COMPANION_DEVICE_SERVICE" />

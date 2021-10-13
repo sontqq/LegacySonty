@@ -1,12 +1,15 @@
 package com.sontme.legacysonty;
 
-import static com.sontme.legacysonty.SontHelperSonty.invertColor;
-
 import android.Manifest;
-import android.animation.ArgbEvaluator;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.NotificationManager;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanSettings;
 import android.companion.AssociationRequest;
 import android.companion.BluetoothLeDeviceFilter;
 import android.companion.CompanionDeviceManager;
@@ -21,7 +24,6 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
-import android.graphics.drawable.ColorDrawable;
 import android.location.GnssStatus;
 import android.location.GpsStatus;
 import android.location.Location;
@@ -31,32 +33,22 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.provider.Settings;
-import android.telephony.CellIdentityGsm;
-import android.telephony.CellIdentityLte;
 import android.telephony.CellInfo;
 import android.telephony.CellInfoCdma;
 import android.telephony.CellInfoGsm;
 import android.telephony.CellInfoLte;
-import android.telephony.CellInfoNr;
-import android.telephony.CellInfoTdscdma;
 import android.telephony.CellInfoWcdma;
-import android.telephony.CellLocation;
 import android.telephony.CellSignalStrengthCdma;
 import android.telephony.CellSignalStrengthGsm;
 import android.telephony.CellSignalStrengthLte;
-import android.telephony.CellSignalStrengthNr;
-import android.telephony.CellSignalStrengthTdscdma;
 import android.telephony.CellSignalStrengthWcdma;
-import android.telephony.NeighboringCellInfo;
 import android.telephony.TelephonyManager;
-import android.telephony.gsm.GsmCellLocation;
 import android.text.Html;
 import android.util.Log;
 import android.view.View;
@@ -77,12 +69,7 @@ import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
-
 import com.google.android.gms.analytics.HitBuilders;
-import com.google.gson.JsonArray;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -94,10 +81,10 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Random;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 
@@ -314,15 +301,20 @@ public class MainActivity extends AppCompatActivity {
                             String type = convertConstellation(status.getConstellationType(i));
                             summed_constellation = summed_constellation + type + " ";
                         }
-                        String[] b = summed_constellation.split(" ");
-
-                        HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
-                        Set<String> mySet = new HashSet<String>(Arrays.asList(b));
-                        for (String s : mySet) {
-                            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s);
+                        String[] constellations = summed_constellation.split(" ");
+                        Set<String> uniqueSet = new HashSet<String>(Arrays.asList(constellations));
+                        TreeSet<String> orderedSet = new TreeSet(uniqueSet);
+                        orderedSet = (TreeSet) orderedSet.descendingSet();
+                        for (String s : orderedSet) {
+                            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(constellations), s) + "\n";
                         }
 
                         txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
+                                "\nSatellite count: " + status.getSatelliteCount() + "\n" +
+                                summed_for_notif);
+                        TextView txt3 = findViewById(R.id.txt3);
+                        txt3.setVisibility(View.VISIBLE);
+                        txt3.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
                                 "\nSatellite count: " + status.getSatelliteCount() + "\n" +
                                 summed_for_notif);
                     } catch (Exception e) {
@@ -444,7 +436,7 @@ public class MainActivity extends AppCompatActivity {
         testbtn3.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                ArrayList<String> intersect = SontHelper.intersectionOfLists(BackgroundService.requestUniqueIDList, BackgroundService.requestUniqueIDList_error);
+                /*ArrayList<String> intersect = SontHelper.intersectionOfLists(BackgroundService.requestUniqueIDList, BackgroundService.requestUniqueIDList_error);
                 Log.d("intersect_", "uni size: " + BackgroundService.requestUniqueIDList.size());
                 Log.d("intersect_", "uni_error size: " + BackgroundService.requestUniqueIDList_error.size());
 
@@ -455,9 +447,12 @@ public class MainActivity extends AppCompatActivity {
                     Log.d("intersect_", "count: " + intersect.size());
                 } else {
                     Log.d("intersect_", "empty intersect");
-                }
+                }*/
+
+
             }
         });
+
         double[] val = {0.1};
         testbtn2.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -898,8 +893,10 @@ public class MainActivity extends AppCompatActivity {
                     long time1 = lastlocation.getTime();
                     String timeago = BackgroundService.getTimeAgo(BackgroundService.lastokscan);
                     String timeago2 = BackgroundService.getTimeAgo(time1);
+                    String timeago3 = BackgroundService.getTimeAgo(BackgroundService.lastBL_scan);
                     if (timeago.equalsIgnoreCase("just now") || // need to modify
-                            timeago2.equalsIgnoreCase("just now")) {
+                            timeago2.equalsIgnoreCase("just now") ||
+                            timeago3.equalsIgnoreCase("just now")) {
                         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("ss");
                         Date date1 = new Date(System.currentTimeMillis() - BackgroundService.lastokscan);
                         String val1 = simpleDateFormat.format(date1);
@@ -909,12 +906,21 @@ public class MainActivity extends AppCompatActivity {
                         String val2 = simpleDateFormat.format(date2);
                         if (val2.startsWith("0"))
                             val2 = val2.substring(1);
-                        testbtn3.setText("Last OK WiFi Scan: " +
-                                val1 + " seconds ago\n" + "Last Location: " + val2 + " seconds ago");
+
+                        Date date3 = new Date(System.currentTimeMillis() -
+                                BackgroundService.lastBL_scan);
+                        String val3 = simpleDateFormat.format(date3);
+                        if (val3.startsWith("0"))
+                            val3 = val3.substring(1);
+
+                        testbtn3.setText("WiFi Scan: " + val1 + " seconds ago\n" +
+                                "Location: " + val2 + " seconds ago\n" +
+                                "BL Scan: " + val3 + " seconds ago");
                     } else {
-                        testbtn3.setText("Last OK WiFi Scan: " +
+                        testbtn3.setText("WiFi Scan: " +
                                 BackgroundService.getTimeAgo(BackgroundService.lastokscan) + "\n" +
-                                "Last Location: " + BackgroundService.getTimeAgo(time1));
+                                "Location: " + BackgroundService.getTimeAgo(time1) + "\n" +
+                                "BL Scan: " + BackgroundService.getTimeAgo(BackgroundService.lastBL_scan) + " seconds ago");
                     }
                 } catch (Exception e) {
                     testbtn3.setText(e.getMessage());

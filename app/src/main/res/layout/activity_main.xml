@@ -65,7 +65,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
-        android:text="Connect Strongest OPEN WiFi" />
+        android:text="Connect Strongest OPEN WiFi"
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/blfileburst"
@@ -79,7 +80,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
-        android:text="Exit" />
+        android:text="Exit"
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/testbtn"
@@ -133,9 +135,9 @@
         android:layout_weight="0"
         android:paddingLeft="20dp"
         android:paddingRight="20dp"
-        android:text="SERVICE STATUS: n/a"
+        android:text="GPS INFO"
         android:textAlignment="center"
-        android:visibility="gone"
+        android:visibility="visible"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
