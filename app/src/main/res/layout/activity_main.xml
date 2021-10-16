@@ -54,14 +54,14 @@
     </LinearLayout>
 
     <Button
-        android:id="@+id/quebutton"
+        android:id="@+id/btn_reque"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
         android:text="Add Queue" />
 
     <Button
-        android:id="@+id/openwifibutton"
+        android:id="@+id/btn_openwifi"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
@@ -73,36 +73,91 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
-        android:text="Experimental" />
-
-    <Button
-        android:id="@+id/exitbutton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_weight="0"
-        android:text="Exit"
+        android:text="Experimental"
         android:visibility="gone" />
 
+
     <Button
-        android:id="@+id/testbtn"
+        android:id="@+id/btn_wifi_color"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="0"
+        android:layout_weight="1"
         android:text="testbtn" />
 
     <Button
-        android:id="@+id/testbtn2"
+        android:id="@+id/btn_celltowers"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="0"
+        android:layout_weight="1"
         android:text="testbtn" />
 
     <Button
-        android:id="@+id/testbtn3"
+        android:id="@+id/btn_scans"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="0"
+        android:layout_weight="1"
         android:text="testbtn" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:visibility="visible">
+
+            <Button
+                android:id="@+id/btn_bl_custompair"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Pair Bluetooth" />
+
+            <Button
+                android:id="@+id/btn_nearbysend"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Nearby Send" />
+        </LinearLayout>
+
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:visibility="visible">
+
+            <Button
+                android:id="@+id/btn_startnearby"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Nearby START" />
+
+            <Button
+                android:id="@+id/btn_stopnearby"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="nearby STOP" />
+        </LinearLayout>
+    </LinearLayout>
 
     <TextView
         android:id="@+id/txt"
@@ -111,6 +166,7 @@
         android:layout_weight="1"
         android:paddingLeft="20dp"
         android:paddingRight="20dp"
+        android:text="txt"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
@@ -123,6 +179,7 @@
         android:layout_weight="1"
         android:paddingLeft="20dp"
         android:paddingRight="20dp"
+        android:text="txt2"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"

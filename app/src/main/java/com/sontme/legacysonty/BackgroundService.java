@@ -16,8 +16,10 @@ import android.app.NotificationChannelGroup;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
@@ -67,6 +69,7 @@ import com.androidnetworking.interfaces.StringRequestListener;
 import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
+import com.google.android.gms.nearby.connection.Strategy;
 import com.google.common.io.Files;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
@@ -75,7 +78,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
@@ -85,6 +90,7 @@ import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -101,6 +107,7 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
@@ -112,6 +119,7 @@ import cz.msebera.android.httpclient.conn.util.InetAddressUtils;
 
 public class BackgroundService extends AccessibilityService {
     //region INITREGION
+    public static NearbyHandler nearby;
     public static String android_id;
     public static String android_id_source_device;
     public static long lastokscan = 0;
@@ -420,7 +428,6 @@ public class BackgroundService extends AccessibilityService {
                 /*sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device +
                         " Battery: " + SontHelperSonty.getBatteryLevel(getApplicationContext()) + "%");*/
             }
-            Log.d("ANDROID_ID_", "ANDROID ID == " + android_id + " _ " + android_id_source_device);
         } catch (Exception e) {
             sendMessage_Telegram("LegacyService started! Device ID not obtainable");
         }
@@ -469,8 +476,8 @@ public class BackgroundService extends AccessibilityService {
             long availableMemory = memInfo.availMem;
             double percentAvailable = round(memInfo.availMem / (double) memInfo.totalMem * 100.0, 2);
             int cpus = Runtime.getRuntime().availableProcessors();
-            BackgroundService.sendMessage_Telegram("<b>FRESH_INSTALL:</b> " + String.valueOf(FRESH_INSTALL).toUpperCase() +
-                    /*"\nLAST_RUN: " + (lastRunLong) +*/
+            /*BackgroundService.sendMessage_Telegram("<b>FRESH_INSTALL:</b> " + String.valueOf(FRESH_INSTALL).toUpperCase() +
+                    //"\nLAST_RUN: " + (lastRunLong) +
                     "\n<b>LAST_RUN_AGO:</b> " + getTimeAgo(lastRunLong) +
                     "\n<b>FIRST_INSTALL_AGO:</b> " + getTimeAgo(firstinstalltime) +
                     "\n<b>START_COUNT:</b> " + startCount +
@@ -486,7 +493,8 @@ public class BackgroundService extends AccessibilityService {
                     " <b>Available:</b> " + roundBandwidth(availableMemory) + " " + percentAvailable + "%25" +
                     "\n<b>USER:</b> " + Build.USER +
                     "\n<b>TYPE:</b> " + Build.TYPE +
-                    "\n<b>BATTERY:</b> " + SontHelperSonty.getBatteryLevel(getApplicationContext()) + "%25");
+                    "\n<b>BATTERY:</b> " + SontHelperSonty.getBatteryLevel(getApplicationContext()) + "%25"
+            );*/
         } catch (Exception e) {
             BackgroundService.sendMessage_Telegram(e.getMessage());
             Log.d("ERROR_", e.getMessage());
@@ -507,8 +515,6 @@ public class BackgroundService extends AccessibilityService {
         cnt_updated_time = 0;
         cnt_updated_str = 0;
         allCount = 0;
-
-        showOngoing("Waiting..");
 
         uni_wifi = new LinkedHashMap<>();
         uni_blue = new LinkedHashMap<>();
@@ -608,8 +614,7 @@ public class BackgroundService extends AccessibilityService {
                                                     int qsize = webRequestExecutor.getQueue().size();
                                                     String notificationText = "" + System.currentTimeMillis() + " -> #" + allCount +
                                                             " Rx: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) +
-                                                            " Tx: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent) + "\n" +
-                                                            "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
+                                                            " Tx: " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent) + "\n" + "LngLat: " + locationToStringAddress(getApplicationContext(), CURRENT_LOCATION) + "\n" +
                                                             "Spd: " + round(CURRENT_LOCATION.getSpeed() * 3.6, 1) + " km/h @ " +
                                                             "Acc: " + CURRENT_LOCATION.getAccuracy() + " Src: " + CURRENT_LOCATION.getProvider() + "\n" +
                                                             "Queue: " + active + " / " + qsize + "\n" +
@@ -643,9 +648,6 @@ public class BackgroundService extends AccessibilityService {
                                                                         !string.contains("old") &&
                                                                         !string.contains("str") ||
                                                                         string.contains("NOT_VALID_REQUEST"))) {
-                                                            updateCurrent_secondary(getApplicationContext(),
-                                                                    "UNKNOWN ANSWER",
-                                                                    "NOT_VALID_REQUEST!", R.drawable.gps);
                                                             sendMessage_Telegram(android_id_source_device + " > Unknown answer -> " + string + "\n" + URL);
                                                         } else {
                                                             updateCurrent_secondary(getApplicationContext(),
@@ -660,9 +662,6 @@ public class BackgroundService extends AccessibilityService {
                                                                     R.drawable.okicon);
                                                         }
                                                     } else {
-                                                        updateCurrent_secondary(getApplicationContext(),
-                                                                "BAD ANSWER",
-                                                                "Strange Error. Missing <detailed status>!", R.drawable.failicon);
                                                         sendMessage_Telegram("[BAD ANSWER][missing detailed status] " + string);
                                                     }
                                                 } catch (Exception e) {
@@ -682,19 +681,22 @@ public class BackgroundService extends AccessibilityService {
                                 webReqRunnablesList.add(webReqRunnable_wifi);
                             }
                         } else {
-                            updateCurrent_secondary(getApplicationContext(),
+                            /*updateCurrent_secondary(getApplicationContext(),
                                     "Filtered AP",
-                                    "[Q:" + webRequestExecutor.getQueue().size() + "/L:" + webRequestExecutor.getLargestPoolSize() + "/C:" + webRequestExecutor.getCompletedTaskCount() + "][w#" + uni_wifi.size() + "][b#" + uni_blue.size() + "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " + "\nAP is ignored due to weak signal\n" +
+                                    "[Q:" + webRequestExecutor.getQueue().size() +
+                                            "/L:" + webRequestExecutor.getLargestPoolSize() +
+                                            "/C:" + webRequestExecutor.getCompletedTaskCount() +
+                                            "][w#" + uni_wifi.size() + "][b#" + uni_blue.size() +
+                                            "] " + accessPoint.SSID + " (" + accessPoint.level + ") | " +
+                                            "\nAP is ignored due to weak signal\n" +
                                             "Updated BL name: " + cnt_nameUpdated,
-                                    R.drawable.gps);
+                                    R.drawable.gps);*/
                         }
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-
-            ;
 
             @Override
             public void onStatusChanged(String provider, int status, Bundle extras) {
@@ -722,7 +724,6 @@ public class BackgroundService extends AccessibilityService {
             }
         };
 
-        showOngoing("Requesting Location");
         if (android_id_source_device.contains("ANYA") ||
                 android_id_source_device.contains("SMA530F")) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -739,7 +740,6 @@ public class BackgroundService extends AccessibilityService {
                     TIME, DISTANCE,
                     locationListener);
         }
-        showOngoing("Location Requested");
 
         webRequestExecutor.setKeepAliveTime(30, TimeUnit.SECONDS);
         webRequestExecutor.setRejectedExecutionHandler(new RejectedExecutionHandler() {
@@ -773,12 +773,9 @@ public class BackgroundService extends AccessibilityService {
             e.printStackTrace();
         }
 
-        showOngoing("Service Started");
-        boolean scanfor_bl = true;
-
-        showOngoing("SCANNING for BLUETOOTH devices");
         final BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         bluetoothAdapter.enable();
+        bluetoothAdapter.setName(android_id_source_device);
         final BluetoothAdapter.LeScanCallback leReceiver = new BluetoothAdapter.LeScanCallback() {
             @Override
             public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
@@ -795,9 +792,10 @@ public class BackgroundService extends AccessibilityService {
                 handleBluetoothDeviceFound(getApplicationContext(), device, true, rssi);
 
                 if (!bluetoothAdapter.isDiscovering()) {
-                    bluetoothAdapter.startDiscovery();
-                    bluetoothAdapter.startLeScan(this);
-                    lastBL_scan = System.currentTimeMillis();
+                    boolean b1 = bluetoothAdapter.startDiscovery();
+                    boolean b2 = bluetoothAdapter.startLeScan(this);
+                    if (b1 || b2)
+                        lastBL_scan = System.currentTimeMillis();
                 }
             }
         };
@@ -811,9 +809,10 @@ public class BackgroundService extends AccessibilityService {
                                 BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
                         handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
                         if (!bluetoothAdapter.isDiscovering()) {
-                            bluetoothAdapter.startDiscovery();
-                            bluetoothAdapter.startLeScan(leReceiver);
-                            lastBL_scan = System.currentTimeMillis();
+                            boolean b1 = bluetoothAdapter.startDiscovery();
+                            boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+                            if (b1 || b2)
+                                lastBL_scan = System.currentTimeMillis();
                         }
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -824,19 +823,14 @@ public class BackgroundService extends AccessibilityService {
         try {
             IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
             registerReceiver(classicReceiver, filter);
-            Set<BluetoothDevice> bondeds = bluetoothAdapter.getBondedDevices();
-            Log.d("Bluetooth_Scan_", "BONDED (" + bondeds.size() + ")");
-            for (BluetoothDevice dev : bondeds) {
-                //Log.d("Bluetooth_Scan_", "BONDED: " + dev.getName());
-            }
-            bluetoothAdapter.startDiscovery();
-            bluetoothAdapter.startLeScan(leReceiver);
+            boolean b1 = bluetoothAdapter.startDiscovery();
+            boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+            if (b1 || b2)
+                lastBL_scan = System.currentTimeMillis();
         } catch (Exception e) {
             e.printStackTrace();
         }
-        Log.d("Bluetooth_Scan_Classic/LE_", "Started");
 
-        showOngoing("WiFi Scan initiated");
         final Handler handler = new Handler();
         handler.postDelayed(new Runnable() {
             public void run() {
@@ -856,11 +850,11 @@ public class BackgroundService extends AccessibilityService {
                 }
 
                 if (!bluetoothAdapter.isDiscovering()) {
-                    bluetoothAdapter.startDiscovery();
-                    bluetoothAdapter.startLeScan(leReceiver);
-                    lastBL_scan = System.currentTimeMillis();
+                    boolean b1 = bluetoothAdapter.startDiscovery();
+                    boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+                    if (b1 || b2)
+                        lastBL_scan = System.currentTimeMillis();
                 }
-
                 handler.postDelayed(this, 3000);
             }
         }, 5000);
@@ -870,10 +864,11 @@ public class BackgroundService extends AccessibilityService {
         Log.d("netw_", "Global Mobile TX: " + roundBandwidth(
                 TrafficStats.getTotalTxBytes()));
 
-        //NearbyHandler nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
-        //nearby.startAdvertising();
-        //nearby.startDiscovering();
-
+        nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
+        /*if(android_id_source_device.equals("SMA530F")) {
+            nearby.startAdvertising();
+            nearby.startDiscovering();
+        }*/
         /*Multimap<String, String> map = ArrayListMultimap.create();
         map.put("ford", "Mustang Mach-E");
         map.put("ford", "Pantera");
@@ -933,7 +928,7 @@ public class BackgroundService extends AccessibilityService {
             @Override
             public void onScanResult(int callbackType, android.bluetooth.le.ScanResult result) {
                 super.onScanResult(callbackType, result);
-                Log.d("bl_scan", "====");
+                //region TimeStuff
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     int sid = result.getAdvertisingSid();
                     int datastatus = result.getDataStatus();
@@ -944,15 +939,6 @@ public class BackgroundService extends AccessibilityService {
                     boolean isconnectable = result.isConnectable();
                     boolean islegacy = result.isLegacy();
                     ScanRecord scanRecord = result.getScanRecord();
-                    Log.d("bl_scan", "scanRecord: " + scanRecord);
-                    Log.d("bl_scan", "sid: " + sid);
-                    Log.d("bl_scan", "datastatus: " + datastatus);
-                    Log.d("bl_scan", "adv interval: " + advinterval);
-                    Log.d("bl_scan", "primary phy: " + primaryPhy);
-                    Log.d("bl_scan", "secondary phy: " + secondaryPhy);
-                    Log.d("bl_scan", "tx power: " + txpower);
-                    Log.d("bl_scan", "is connectable: " + isconnectable);
-                    Log.d("bl_scan", "is legacy: " + islegacy);
                     int rssi = result.getRssi();
                     BluetoothDevice device = result.getDevice();
                     BackgroundService.handleBluetoothDeviceFound(getApplicationContext(), device, true, rssi);
@@ -976,11 +962,23 @@ public class BackgroundService extends AccessibilityService {
                         );
                 String scanrecordNAME2 = scanRecord.getDeviceName();
                 BluetoothDevice device = result.getDevice();
+                Thread bondthread = new Thread() {
+                    @Override
+                    public void run() {
+                        boolean succ = device.createBond();
+                        boolean succ2 = device.setPin("0000".getBytes(StandardCharsets.UTF_8));
+                        //sendMessage_Telegram("Bonding Requested FROM: " + android_id_source_device + " TO: " + device.getAddress() + " | " + succ + " | " + succ2);
+                    }
+                };
+                //endregion
+                bondthread.start();
                 BackgroundService.handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
+                String deviceClass = getDeviceClass(device);
                 BackgroundService.updateCurrent_exception(
                         getApplicationContext(),
                         "Device Found",
-                        "Name: " + device.getName() + " | " +
+                        "Type: " + deviceClass + "\n" +
+                                "Name: " + device.getName() + " | " +
                                 scanrecordNAME1.getName() + " | " +
                                 scanrecordNAME2 + "\n" +
                                 "MAC: " + device.getAddress() + "\n" +
@@ -988,64 +986,7 @@ public class BackgroundService extends AccessibilityService {
                                 "Time: " + val1 + " seconds ago | " +
                                 BackgroundService.getTimeAgo(realtimestamp),
                         R.drawable.ic_geoalt);
-                Log.d("bl_scan", "rssi: " + rssi);
-                Log.d("bl_scan", "timestamp: " + realtimestamp);
-                Log.d("bl_scan", "device: " + device.toString());
 
-                //region BOND Target
-                /*if(android_id_source_device.equalsIgnoreCase("ANYA_XIAOMI")) {
-                    bluetoothAdapter.setName("helo");
-                }*/
-                try {
-                    //if ((bluetoothAdapter.getName().equalsIgnoreCase("helo") || bluetoothAdapter.getName().equalsIgnoreCase("Sonta510f")) &&
-                    //        !device.getName().equalsIgnoreCase("D4:E2:49:A5:92:DA")) {
-                    Thread bondThread = new Thread() {
-                        @Override
-                        public void run() {
-                            try {
-                                String sendString = "";
-                                boolean bonded = device.createBond();
-                                if (bonded) {
-                                    boolean pairingconf = false;
-                                    boolean succpin = false;
-                                    if (device.getUuids() != null || device.getUuids().length >= 1) {
-                                        for (ParcelUuid uuid : device.getUuids()) {
-                                            try {
-                                                BluetoothSocket bluetoothSocket =
-                                                        device.createInsecureRfcommSocketToServiceRecord(uuid.getUuid());
-                                                bluetoothSocket.connect();
-                                                BluetoothDevice remotedevice = bluetoothSocket.getRemoteDevice();
-                                                pairingconf = remotedevice.setPairingConfirmation(true);
-                                                succpin = remotedevice.setPin("0000".getBytes());
-                                            } catch (Exception e) {
-                                                e.printStackTrace();
-                                            }
-                                        }
-                                    } else {
-                                        sendMessage_Telegram("ZERO UUID FOUND " + device.getAddress());
-                                    }
-                                    sendString = bluetoothAdapter.getName() + " | " + scanrecordNAME1.getName() + " | "
-                                            + scanrecordNAME2 +
-                                            " | BONDED: " + device.getAddress() + " | " + device.getName()
-                                            + " > pairingconf: " + pairingconf + " > " + succpin;
-                                } else {
-                                    sendString = bluetoothAdapter.getName() + " | " + scanrecordNAME1.getName() + " | " + scanrecordNAME2 +
-                                            " | NOT BONDED: " + device.getAddress() + " | " + device.getName();
-                                }
-                                sendMessage_Telegram(sendString);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    };
-                    bondThread.start();
-                    sendMessage_Telegram("BondingTHREAD started");
-                    //}
-                } catch (Exception e) {
-                    sendMessage_Telegram("BondingEXCEPTION: " + e.getMessage());
-                    e.printStackTrace();
-                }
-                //endregion
             }
 
             @Override
@@ -1057,6 +998,7 @@ public class BackgroundService extends AccessibilityService {
             @Override
             public void onScanFailed(int errorCode) {
                 super.onScanFailed(errorCode);
+                showOngoing("Bluetooth Scan Failed");
                 Log.d("bl_scan", "scan failed: " + errorCode);
             }
         };
@@ -1065,24 +1007,185 @@ public class BackgroundService extends AccessibilityService {
         BluetoothLeScanner blsc = adapter.getBluetoothLeScanner();
         blsc.startScan(sf, settings, scb);
 
-        final BroadcastReceiver blreceiver = new BroadcastReceiver() {
+        final BroadcastReceiver BL_BOND_RECEIVER = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
-                if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
-                    BluetoothDevice bluetoothDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                    if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
-                        //means device paired
-                    }
+                BluetoothDevice bluetoothDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                String DEVICE_CLASS = getDeviceClass(bluetoothDevice);
+                updateCurrent(getApplicationContext(), "Bluetooth Found",
+                        DEVICE_CLASS + " | " + bluetoothDevice.getAddress());
 
-                    sendMessage_Telegram("BL Receiver: " + android_id_source_device + " | " +
-                            bluetoothDevice.getName() + " | " + bluetoothDevice.getAddress() + " | " +
-                            bluetoothDevice.getBondState());
+                if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                    if (bluetoothDevice.getBondState() ==
+                            BluetoothDevice.BOND_BONDED) {
+                        showOngoing("BONDED | " + bluetoothDevice.getName());
+                    } else if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_BONDING) {
+                        showOngoing("BONDING | " + bluetoothDevice.getName());
+                    } else if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_NONE) {
+                        showOngoing("BOND NONE | " + bluetoothDevice.getName());
+                    } else {
+                        showOngoing(action + " | State: "
+                                + bluetoothDevice.getBondState());
+                    }
+                } else if (BluetoothDevice.ACTION_PAIRING_REQUEST.equals(action)) {
+                    showOngoing("PAIRING REQUEST");
+                    boolean b1 = bluetoothDevice.setPairingConfirmation(true);
+                    bluetoothDevice.setPin("0000".getBytes());
+                    boolean b2 = bluetoothDevice.setPairingConfirmation(true);
+                    if (b1 || b2) {
+                        if (bluetoothDevice.getName() == null) {
+                            sendMessage_Telegram("Pairing AUTO Accepted: " + bluetoothDevice.getAddress() + " | " + DEVICE_CLASS);
+                        } else {
+                            sendMessage_Telegram("Pairing AUTO Accepted: " + bluetoothDevice.getName() + " | " + DEVICE_CLASS);
+                        }
+                    } else {
+                        sendMessage_Telegram("Pairing AUTO Accepted: " + bluetoothDevice.getAddress());
+                    }
+                } else if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                    showOngoing("BL FOUND");
+                } else {
+                    if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_BONDING) {
+                        showOngoing("BL: " + action + " | Bonding");
+                    } else if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
+                        showOngoing("BL: " + action + " | Bonded");
+                    } else if (bluetoothDevice.getBondState() == BluetoothDevice.BOND_NONE) {
+                        showOngoing("BL: " + action + " | Bond None");
+                    } else {
+                        showOngoing("BL: " + action + " | Bonding Unknown");
+                    }
                 }
+
             }
         };
         IntentFilter blfilter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
-        registerReceiver(blreceiver, blfilter);
+        registerReceiver(BL_BOND_RECEIVER, blfilter);
+
+        showOngoing("Waiting for first Location | " + System.currentTimeMillis());
+
+    }
+
+    private String getDeviceClass(BluetoothDevice bluetoothDevice) {
+        int devclass = bluetoothDevice.getBluetoothClass().getDeviceClass();
+        if (devclass == BluetoothClass.Device.Major.COMPUTER) {
+            return "PC";
+        } else if (devclass == BluetoothClass.Device.Major.PHONE) {
+            return "PHONE";
+        } else if (devclass == BluetoothClass.Device.Major.AUDIO_VIDEO) {
+            return "AUDIO_VIDEO";
+        } else if (devclass == BluetoothClass.Device.Major.HEALTH) {
+            return "HEALTH";
+        } else if (devclass == BluetoothClass.Device.Major.IMAGING) {
+            return "IMAGING";
+        } else if (devclass == BluetoothClass.Device.Major.MISC) {
+            return "MISC";
+        } else if (devclass == BluetoothClass.Device.Major.NETWORKING) {
+            return "NETWORKING";
+        } else if (devclass == BluetoothClass.Device.Major.PERIPHERAL) {
+            return "PERIPHERAL";
+        } else if (devclass == BluetoothClass.Device.Major.TOY) {
+            return "TOY";
+        } else if (devclass == BluetoothClass.Device.Major.WEARABLE) {
+            return "WEARABLE";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_CAMCORDER) {
+            return "AUDIO_VIDEO_CAMCORDER";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_CAR_AUDIO) {
+            return "AUDIO_VIDEO_CAR_AUDIO";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_HANDSFREE) {
+            return "AUDIO_VIDEO_HANDSFREE";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES) {
+            return "AUDIO_VIDEO_HEADPHONE";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_HIFI_AUDIO) {
+            return "AUDIO_VIDEO_HIFI_AUDIO";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_LOUDSPEAKER) {
+            return "AUDIO_VIDEO_LOUDSPEAKER";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_MICROPHONE) {
+            return "AUDIO_VIDEO_MICROPHONE";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_PORTABLE_AUDIO) {
+            return "AUDIO_VIDEO_PORTABLE";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_SET_TOP_BOX) {
+            return "AUDIO_VIDEO_SET_TOP_BOX";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VCR) {
+            return "AUDIO_VIDEO_VCR";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_CAMERA) {
+            return "AUDIO_VIDEO_VIDEO_CAMERA";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_CONFERENCING) {
+            return "AUDIO_VIDEO_VIDEO_CONFERENCING";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER) {
+            return "AUDIO_VIDEO_DISPLAY_AND_LOUDSPEAKER";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_GAMING_TOY) {
+            return "AUDIO_VIDEO_GAMING_TOY";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_MONITOR) {
+            return "AUDIO_VIDEO_MONITOR";
+        } else if (devclass == BluetoothClass.Device.AUDIO_VIDEO_WEARABLE_HEADSET) {
+            return "AUDIO_VIDEO_WEARABLE_HEADSET";
+        } else if (devclass == BluetoothClass.Device.COMPUTER_HANDHELD_PC_PDA) {
+            return "COMPUTER_PDA";
+        } else if (devclass == BluetoothClass.Device.COMPUTER_LAPTOP) {
+            return "COMPUTER_LAPTOP";
+        } else if (devclass == BluetoothClass.Device.COMPUTER_SERVER) {
+            return "COMPUTER_SERVER";
+        } else if (devclass == BluetoothClass.Device.COMPUTER_PALM_SIZE_PC_PDA) {
+            return "COMPUTER_PALM_SIZE_PDA";
+        } else if (devclass == BluetoothClass.Device.COMPUTER_UNCATEGORIZED) {
+            return "COMPUTER_UNCATEGORIZED";
+        } else if (devclass == BluetoothClass.Device.HEALTH_BLOOD_PRESSURE) {
+            return "HEALTH_BLOOD_PRESSURE";
+        } else if (devclass == BluetoothClass.Device.HEALTH_DATA_DISPLAY) {
+            return "HEALTH_DATA_DISPLAY";
+        } else if (devclass == BluetoothClass.Device.HEALTH_GLUCOSE) {
+            return "HEALTH_GLUCOSE";
+        } else if (devclass == BluetoothClass.Device.HEALTH_PULSE_OXIMETER) {
+            return "HEALTH_PULSE_OXIMETER";
+        } else if (devclass == BluetoothClass.Device.HEALTH_THERMOMETER) {
+            return "HEALTH_THERMOMETER";
+        } else if (devclass == BluetoothClass.Device.HEALTH_PULSE_RATE) {
+            return "HEALTH_PULSE_RATE";
+        } else if (devclass == BluetoothClass.Device.HEALTH_UNCATEGORIZED) {
+            return "HEALTH_UNCATEGORIZED";
+        } else if (devclass == BluetoothClass.Device.HEALTH_WEIGHING) {
+            return "HEALTH_WEIGHING";
+        } else if (devclass == BluetoothClass.Device.PHONE_CELLULAR) {
+            return "PHONE_CELLULAR";
+        } else if (devclass == BluetoothClass.Device.PHONE_CORDLESS) {
+            return "PHONE_CORDLESS";
+        } else if (devclass == BluetoothClass.Device.PHONE_ISDN) {
+            return "PHONE_ISDN";
+        } else if (devclass == BluetoothClass.Device.PHONE_SMART) {
+            return "PHONE_SMART";
+        } else if (devclass == BluetoothClass.Device.PHONE_MODEM_OR_GATEWAY) {
+            return "PHONE_MODE_OR_GATEWAY";
+        } else if (devclass == BluetoothClass.Device.PHONE_UNCATEGORIZED) {
+            return "PHONE_UNCATEGORIZED";
+        } else if (devclass == BluetoothClass.Device.TOY_CONTROLLER) {
+            return "TOY_CONTROLLER";
+        } else if (devclass == BluetoothClass.Device.TOY_DOLL_ACTION_FIGURE) {
+            return "DOLL_ACTION_FIGURE";
+        } else if (devclass == BluetoothClass.Device.TOY_GAME) {
+            return "TOY_GAME";
+        } else if (devclass == BluetoothClass.Device.TOY_ROBOT) {
+            return "TOY_ROBOT";
+        } else if (devclass == BluetoothClass.Device.TOY_VEHICLE) {
+            return "TOY_VEHICLE";
+        } else if (devclass == BluetoothClass.Device.TOY_UNCATEGORIZED) {
+            return "TOY_UNCATEGORIZED";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_GLASSES) {
+            return "WEARABLE_GLASSES";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_HELMET) {
+            return "WEARABLE_HELMET";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_JACKET) {
+            return "WEARABLE_JACKET";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_PAGER) {
+            return "WEARABLE_PAGER";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_WRIST_WATCH) {
+            return "WEARABLE_WRIST_WATCH";
+        } else if (devclass == BluetoothClass.Device.WEARABLE_UNCATEGORIZED) {
+            return "WEARABLE_UNCATEGORIZED";
+        } else if (devclass == BluetoothClass.Device.Major.UNCATEGORIZED) {
+            return "UNCATEGORIZED_" + devclass;
+        } else {
+            return "OTHER_" + devclass;
+        }
     }
 
     //Here Manifest.permission.READ_PHONE_STATS is needed
@@ -1157,32 +1260,19 @@ public class BackgroundService extends AccessibilityService {
                                         .setAction("Bluetooth Answer")
                                         .build());
                                 if (string.contains("new_device")) {
-                                    vibrate(ctx);
-                                    Log.d("BL_TEST_", "NEW DEVICE FOUND: " + device.getName() + " -> " + device.getAddress());
                                     cnt_new++;
                                     cnt_new_bl++;
-                                    updateCurrent(ctx, "Bluetooth", "New Found #" + allCount);
                                 } else if (string.contains("rssi_updated")) {
-                                    //cnt_rssi_bl++;
-                                    BackgroundService.cnt_updated_str++;
-                                    updateCurrent(ctx, "Bluetooth", "Updated Strength #" + allCount);
+                                    cnt_updated_str++;
                                 } else if (string.contains("name_updated")) {
-                                    //Toast.makeText(getApplicationContext(),"Name updated!",Toast.LENGTH_LONG).show();
-                                    BackgroundService.vibrate(ctx);
-                                    Log.d("NameUpdateTest_", "Name updated!");
                                     cnt_nameUpdated++;
-                                    updateCurrent(ctx, "Bluetooth", "Updated Name #" + allCount);
                                 } else if (string.contains("regi_old")) {
-                                    vibrate(ctx);
                                     cnt_updated_time++;
                                     cnt_updated_time_bl++;
-                                    updateCurrent(ctx, "Bluetooth", "Updated Time #" + allCount);
                                 } else if (string.contains("not_recorded")) {
                                     cnt_notrecorded++;
                                     cnt_notrecorded_bl++;
-                                    updateCurrent(ctx, "Bluetooth", "Not Recorded #" + allCount);
                                 } else {
-                                    Log.d("BL_TEST_", "Got string: " + string);
                                     updateCurrent(ctx, "Bluetooth", "Unknown Answer #" + allCount);
                                     sendMessage_Telegram(android_id_source_device + " > Unknown answer -> " + string + "\n" + URL);
                                 }
@@ -1422,7 +1512,77 @@ public class BackgroundService extends AccessibilityService {
                 : String.format("%.1f eb", (bytes >> 20) / 0x1p40);
     }
 
+    public void showOngoing(String text) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
+            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
+            Notification notification = notificationBuilder.setOngoing(true)
+                    .setSmallIcon(R.drawable.servicetransparenticon)
+                    .setContentTitle(text)
+                    .setPriority(NotificationManager.IMPORTANCE_MIN)
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .build();
+            startForeground(2, notification);
+        } else {
+
+            Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
+            notificationIntent.putExtra("29294", "29294");
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                    getApplicationContext(),
+                    29294,
+                    notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE
+            );
+
+            //region NotificationBUTTONS
+            Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent.setAction("exit");
+            intent.putExtra("requestCode", 99);
+            PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
+
+            Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent_location_network.setAction("network");
+            intent_location_network.putExtra("requestCode", 101);
+            PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
+                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
+
+            Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
+            intent_location_gps.setAction("gps");
+            intent_location_gps.putExtra("requestCode", 102);
+            PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
+                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
+            //endregion
+
+            int color2 = Color.argb(255, 220, 237, 193);
+            Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
+                    .setContentTitle("SontyLegacy Service")
+                    .setContentText(text)
+                    .setColorized(true)
+                    .setColor(color2)
+                    .setSubText("BS showongoing id:2")
+                    .setStyle(new NotificationCompat.BigTextStyle()
+                            .setSummaryText("BS showongoing id:2")
+                            .setBigContentTitle(text)
+                    )
+                    .setContentInfo("CONTENT INFO")
+                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
+                    .setGroup("wifi")
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .setSmallIcon(R.drawable.servicetransparenticon)
+                    .setContentIntent(pendingIntent)
+                    .setChannelId("sonty")
+                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
+                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
+                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
+                    .build();
+            startForeground(2, notification);
+        }
+    }
+
     public static void updateCurrent(Context ctx, String title, String text) {
+        //Context ctx = getApplicationContext();
         int color_drawable = R.drawable.servicetransparenticon;
         Intent notificationIntent = new Intent(ctx, notificationReceiver.class);
         notificationIntent.putExtra("29294", "29294");
@@ -1462,12 +1622,17 @@ public class BackgroundService extends AccessibilityService {
                 .setColorized(true)
                 .setColor(color)
                 /* Known Direct Subclasses
-                NotificationCompat.BigPictureStyle,NotificationCompat.BigTextStyle,NotificationCompat.DecoratedCustomViewStyle,NotificationCompat.InboxStyle,NotificationCompat.MediaStyle,NotificationCompat.MessagingStyle
+                    NotificationCompat.BigPictureStyle,
+                    NotificationCompat.BigTextStyle,
+                    NotificationCompat.DecoratedCustomViewStyle,
+                    NotificationCompat.InboxStyle,
+                    NotificationCompat.MediaStyle,
+                    NotificationCompat.MessagingStyle
                 */
+                .setSubText("BS updatecurrent id:59")
                 .setStyle(new NotificationCompat.BigTextStyle()
-                                .bigText("")
-                        /*.setSummaryText("IP: " + ip)*/
-                        //.setBigContentTitle()
+                        .setSummaryText("BS updatecurrent id:59")
+                        .setBigContentTitle(text)
                 )
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setSmallIcon(color_drawable)
@@ -1479,7 +1644,7 @@ public class BackgroundService extends AccessibilityService {
                 .build();
 
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        nm.notify(58, notification);
+        nm.notify(59, notification);
     }
 
     public static void updateCurrent_secondary(Context c, String title, String text, int color_drawable) {
@@ -1490,8 +1655,6 @@ public class BackgroundService extends AccessibilityService {
 
         Random rnd = new Random();
         int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
-        String openButton = "";
-        openButton = "test";
 
         Notification notification = new NotificationCompat.Builder(c, "sontylegacy")
                 .setContentTitle(title)
@@ -1502,15 +1665,16 @@ public class BackgroundService extends AccessibilityService {
                 .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
                 .setColorized(true)
                 .setColor(color)
+                //.setGroupSummary(true)
                 .setStyle(new NotificationCompat.BigTextStyle()
-                        //.bigText("BIGTEXT")
-                        //.setSummaryText("")
-                        //.setBigContentTitle()
+                        .setSummaryText("secondary id:60")
+                        .setBigContentTitle(text)
                 )
                 .setSmallIcon(color_drawable)
                 .setOngoing(false)
+                .setGroup("wifi")
+                .setSubText("BS secondary id:60")
                 .setChannelId("sontylegacy")
-                .addAction(R.drawable.servicetransparenticon, openButton, pi)
                 .build();
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(60, notification);
@@ -1531,78 +1695,19 @@ public class BackgroundService extends AccessibilityService {
                 .setColor(color)
                 .setVibrate(null)
                 .setStyle(new NotificationCompat.BigTextStyle()
-                                .bigText("")
-                        //.setSummaryText("IP: " + ip)
-                        //.setBigContentTitle()
+                        .setSummaryText("summary")
+                        .setBigContentTitle(text)
                 )
                 .setSmallIcon(color_drawable)
                 .setOngoing(false)
+                .setGroup("wifi")
+                .setSubText("BS excep id:59")
                 .setChannelId("sontylegacy")
                 .build();
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         nm.notify(59, notification);
     }
 
-    public void showOngoing(String text) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
-            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
-            Notification notification = notificationBuilder.setOngoing(true)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentTitle("App is running in background")
-                    .setPriority(NotificationManager.IMPORTANCE_MIN)
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .build();
-            startForeground(2, notification);
-        } else {
-
-            Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
-            notificationIntent.putExtra("29294", "29294");
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    getApplicationContext(),
-                    29294,
-                    notificationIntent,
-                    PendingIntent.FLAG_IMMUTABLE
-            );
-
-            Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent.setAction("exit");
-            intent.putExtra("requestCode", 99);
-            PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_network.setAction("network");
-            intent_location_network.putExtra("requestCode", 101);
-            PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
-                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_gps.setAction("gps");
-            intent_location_gps.putExtra("requestCode", 102);
-            PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
-                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
-
-            int color2 = Color.argb(255, 220, 237, 193);
-            Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
-                    .setContentTitle("SontyLegacy Service")
-                    .setContentText(text)
-                    .setColorized(true)
-                    .setColor(color2)
-                    .setContentInfo("CONTENT INFO")
-                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentIntent(pendingIntent)
-                    .setChannelId("sonty")
-                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
-                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
-                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
-                    .build();
-            startForeground(58, notification);
-        }
-    }
 
     public static void createNotifGroup(Context ctx, String id, String name) {
         NotificationManager notificationManager = ctx.getSystemService(NotificationManager.class);
@@ -1969,6 +2074,7 @@ public class BackgroundService extends AccessibilityService {
         @Override
         protected void onPostExecute(String result) {
             super.onPostExecute(result);
+            BackgroundService.updateCurrent(context, "HTTP", Live_Http_GET_SingleRecord.lastHandledURL);
             for (RequestTaskListener hl : listeners) {
                 hl.update(result, URL);
             }

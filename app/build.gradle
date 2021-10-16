@@ -58,7 +58,7 @@ dependencies {
     //implementation 'com.facebook.stetho:stetho-okhttp3:1.6.0'
 
     //implementation 'com.github.moduth:blockcanary:1.0.1'
-    debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.7'
+    //debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.7'
 
     implementation 'org.apache.commons:commons-math3:3.6.1'
     implementation 'com.loopj.android:android-async-http:1.4.9'
