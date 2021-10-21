@@ -79,10 +79,15 @@ import java.util.stream.Stream;
 
 
 public class MainActivity extends AppCompatActivity {
+    private static final int SECOND_MILLIS = 1000;
+    private static final int MINUTE_MILLIS = 60 * SECOND_MILLIS;
+    private static final int HOUR_MILLIS = 60 * MINUTE_MILLIS;
+    private static final int DAY_MILLIS = 24 * HOUR_MILLIS;
+
     TextView txt;
     TextView statsTextview;
-    SeekBar seekBar;
-    TextView seekval;
+    //SeekBar seekBar;
+    //TextView seekval;
     public TextView alertText1;
     public TextView alertText2;
     public TextView alertText3;
@@ -196,7 +201,7 @@ public class MainActivity extends AppCompatActivity {
             startService(i);
         }
 
-        Runnable runnable_no = new Runnable() {
+        runnable_no = new Runnable() {
             @Override
             public void run() {
                 /*alertText.setText(Html.fromHtml(
@@ -212,7 +217,7 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        Runnable runnable_yes = new Runnable() {
+        runnable_yes = new Runnable() {
             @Override
             public void run() {
                 try {
@@ -254,33 +259,40 @@ public class MainActivity extends AppCompatActivity {
                                                     Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                                     }
                                     long lastUpdate;
+                                    String ago = "no info yet";
                                     try {
                                         lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
                                         lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
+                                        ago = getTimeAgo(lastUpdate);
+                                        if (ago == null)
+                                            ago = getTimeAgo(System.currentTimeMillis());
+                                        if (ago == null)
+                                            ago = String.valueOf(System.currentTimeMillis());
                                     } catch (Exception e) {
                                         lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
                                     }
-
                                     if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
                                             < (10000)) {
-                                        txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() + "\n" +
-                                                "STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
+                                        txt4.setText(Html.fromHtml("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() + "<br>" +
+                                                "STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                     } else {
-                                        txt4.setText("LOST GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] " + lastUpdate);
+                                        txt4.setText(Html.fromHtml("LOST GPS FIX [" +
+                                                BackgroundService.LOCATON_CHANGE_COUNTER +
+                                                "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                     }
                                 }
                                 break;
                             case GpsStatus.GPS_EVENT_FIRST_FIX:
-                                txt4.setText("FIRST LOCATION");
-                                //Toast.makeText(getApplicationContext(), "GPS: FIRST LOCATION", Toast.LENGTH_LONG).show();
+                                txt4.setText("FIRST LOCATION " +
+                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                 break;
                             case GpsStatus.GPS_EVENT_STARTED:
-                                txt4.setText("GPS STARTED");
-                                //Toast.makeText(getApplicationContext(), "GPS: STARTED", Toast.LENGTH_LONG).show();
+                                txt4.setText("GPS STARTED " +
+                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                 break;
                             case GpsStatus.GPS_EVENT_STOPPED:
-                                txt4.setText("GPS STOPPED");
-                                //Toast.makeText(getApplicationContext(), "GPS: STOPPED", Toast.LENGTH_LONG).show();
+                                txt4.setText("GPS STOPPED " +
+                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                 break;
                         }
                     } catch (Exception e) {
@@ -293,38 +305,51 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onStarted() {
                     super.onStarted();
-                    txt3.setText("GPS/GNSS Started " + System.currentTimeMillis());
+                    try {
+                        txt3.setText("GPS/GNSS Started " +
+                                Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                    } catch (Exception e) {
+                        txt3.setText("GPS/GNSS Started");
+                    }
                 }
 
                 @Override
                 public void onStopped() {
                     super.onStopped();
-                    txt3.setText("GPS/GNSS Stopped " + System.currentTimeMillis());
+                    try {
+                        txt3.setText("GPS/GNSS Stopped " +
+                                Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                    } catch (Exception e) {
+                        txt3.setText("GPS/GNSS Stopped");
+                    }
                 }
 
                 @Override
                 public void onFirstFix(int ttffMillis) {
                     super.onFirstFix(ttffMillis);
-                    txt3.setText("First FIX: " + ttffMillis);
-                    txt4.setText("First FIX: " + ttffMillis);
+                    try {
+                        txt3.setText("First FIX: " + Html.fromHtml("<b>" + BackgroundService.getTimeAgo(ttffMillis) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                    } catch (Exception e) {
+                        txt3.setText("First FIX: " + ttffMillis);
+                    }
                 }
 
                 @Override
                 public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
                     super.onSatelliteStatusChanged(status);
                     try {
-                        String summed_constellation = "";
+                        ArrayList<String> summed_constellation = new ArrayList<>();
                         String summed_for_notif = "";
                         for (int i = 0; i < status.getSatelliteCount(); i++) {
                             String type = convertConstellation(status.getConstellationType(i));
-                            summed_constellation = summed_constellation + type + " ";
+                            summed_constellation.add(type);
                         }
-                        String[] constellations = summed_constellation.split(" ");
-                        Set<String> uniqueSet = new HashSet<String>(Arrays.asList(constellations));
+                        Set<String> uniqueSet = new HashSet<String>(
+                                summed_constellation);
                         TreeSet<String> orderedSet = new TreeSet(uniqueSet);
                         orderedSet = (TreeSet) orderedSet.descendingSet();
                         for (String s : orderedSet) {
-                            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(constellations), s) + "\n";
+                            summed_for_notif += s + ": " + Collections.frequency(summed_constellation, s) + "\n";
                         }
 
                         txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
@@ -341,7 +366,8 @@ public class MainActivity extends AppCompatActivity {
         statsTextview = findViewById(R.id.txt2);
         txt3 = findViewById(R.id.txt3);
         txt4 = findViewById(R.id.txt4);
-        seekBar = findViewById(R.id.seekBar);
+
+        /*seekBar = findViewById(R.id.seekBar);
         seekval = findViewById(R.id.seekval2);
         seekBar.setContentDescription("Executor Pool Core Size");
         seekBar.setHapticFeedbackEnabled(true);
@@ -373,7 +399,7 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar seekBar) {
             }
         });
-
+        */
 
         try {
             bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
@@ -537,6 +563,10 @@ public class MainActivity extends AppCompatActivity {
                 };
                 thread.start();
 
+                for (BackgroundService.Live_Http_GET_SingleRecord http : BackgroundService.httpErrorList) {
+                    //BackgroundService.Live_Http_GET_SingleRecord.executeRequest(http);
+                }
+
                 Dialog dialog = new Dialog(MainActivity.this);
                 dialog.setContentView(R.layout.custom_alert_dialog);
                 alertText1 = (TextView) dialog.findViewById(R.id.alerttxt1);
@@ -618,10 +648,25 @@ public class MainActivity extends AppCompatActivity {
         BTN_nearbySend.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                byte[] b = "tesztelgetek".getBytes();
-                String tosend = "tesztlol";
+                String tosend = "tesztlol_" + System.currentTimeMillis();
                 BackgroundService.nearby.sendKeyObjectPayload("string", tosend);
-                //BackgroundService.nearby.sendByteArray(b);
+                try {
+                    String sum = "";
+                    Set<String> uniqueSet = new HashSet<String>(
+                            /*Arrays.asList(*/
+                            BackgroundService.bluetooth_types/*)*/);
+                    TreeSet<String> orderedSet = new TreeSet(uniqueSet);
+                    orderedSet = (TreeSet) orderedSet.descendingSet();
+                    for (String s : orderedSet) {
+                        sum += s + ": " + Collections.frequency(BackgroundService.bluetooth_types, s) + "\n";
+                    }
+                    BackgroundService.sendMessage_Telegram(sum);
+                    Toast.makeText(getApplicationContext(), sum, Toast.LENGTH_LONG).show();
+                    Log.d("tesztelek_", "asd: " + sum + " " + uniqueSet.size());
+                } catch (Exception e) {
+                    BackgroundService.sendMessage_Telegram(e.getMessage());
+                    e.printStackTrace();
+                }
             }
         });
         BTN_startNearby.setAlpha(0.7f);
@@ -710,7 +755,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception e) {
                     BTN_scans.setText(e.getMessage());
-                    e.printStackTrace();
+                    //e.printStackTrace();
                 }
                 ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                 NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
@@ -958,7 +1003,7 @@ public class MainActivity extends AppCompatActivity {
         int bc = getGreenToRedAndroid(level);
 
         BTN_cellTowers.setBackgroundColor(bc);
-        BTN_cellTowers.setText("Cell Towers: " + infos.size() + " / Average: [" + average + "]\n" +
+        BTN_cellTowers.setText("Cell Towers: " + infos.size() + " / Average: [" + average + "] " +
                 summed_for_notif);
     }
 
@@ -1046,6 +1091,35 @@ public class MainActivity extends AppCompatActivity {
                 : String.format("%.1f eb", (bytes >> 20) / 0x1p40);
     }
 
+    String getTimeAgo(long time) {
+        if (time < 1000000000000L) {
+            // if timestamp given in seconds, convert to millis
+            time *= 1000;
+        }
+
+        long now = System.currentTimeMillis();
+        if (time > now || time <= 0) {
+            return null;
+        }
+
+        // TODO: localize
+        final long diff = now - time;
+        if (diff < MINUTE_MILLIS) {
+            return "just now";
+        } else if (diff < 2 * MINUTE_MILLIS) {
+            return "a minute ago";
+        } else if (diff < 50 * MINUTE_MILLIS) {
+            return diff / MINUTE_MILLIS + " minutes ago";
+        } else if (diff < 90 * MINUTE_MILLIS) {
+            return "an hour ago";
+        } else if (diff < 24 * HOUR_MILLIS) {
+            return diff / HOUR_MILLIS + " hours ago";
+        } else if (diff < 48 * HOUR_MILLIS) {
+            return "yesterday";
+        } else {
+            return diff / DAY_MILLIS + " days ago";
+        }
+    }
 }
 
 

@@ -3,7 +3,6 @@ package com.sontme.legacysonty;
 import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.getSharedPref;
 import static com.sontme.legacysonty.SontHelperSonty.FileIOTools.saveSharedPref;
 import static com.sontme.legacysonty.SontHelperSonty.getCurrentTimeHumanReadable;
-import static com.sontme.legacysonty.SontHelperSonty.getDeviceName;
 
 import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
@@ -19,8 +18,6 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
-import android.bluetooth.BluetoothServerSocket;
-import android.bluetooth.BluetoothSocket;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanFilter;
@@ -45,10 +42,10 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.ParcelUuid;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -60,7 +57,6 @@ import android.view.accessibility.AccessibilityEvent;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
-import androidx.core.content.ContextCompat;
 
 import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
@@ -78,9 +74,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
@@ -90,7 +84,6 @@ import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -105,9 +98,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
-import java.util.Set;
 import java.util.TimeZone;
-import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
@@ -239,15 +230,19 @@ public class BackgroundService extends AccessibilityService {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     if (!wifiManager.isScanThrottleEnabled()) {
+                        if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                            boolean succ = wifiManager.startScan();
+                            if (succ == true) {
+                                lastokscan = System.currentTimeMillis();
+                            }
+                        }
+                    }
+                } else {
+                    if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
                         boolean succ = wifiManager.startScan();
                         if (succ == true) {
                             lastokscan = System.currentTimeMillis();
                         }
-                    }
-                } else {
-                    boolean succ = wifiManager.startScan();
-                    if (succ == true) {
-                        lastokscan = System.currentTimeMillis();
                     }
                 }
             } catch (Exception e) {
@@ -368,15 +363,57 @@ public class BackgroundService extends AccessibilityService {
                     android.os.Process.myUid(), getPackageName());
             if (mode != AppOpsManager.MODE_ALLOWED) {
                 Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(intent);
             }
         }
     }
     //endregion
 
+    public static ArrayList<String> bluetooth_types;
+    public static ArrayList<Live_Http_GET_SingleRecord> httpErrorList = new ArrayList<>();
+
+    public static long getBatteryCapacity2(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            BatteryManager mBatteryManager = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+            Integer chargeCounter = mBatteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+            Integer capacity = mBatteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+
+            if (chargeCounter == Integer.MIN_VALUE || capacity == Integer.MIN_VALUE)
+                return 0;
+
+            return (chargeCounter / capacity) * 100;
+        }
+        return 0;
+    }
+
+    public static double getBatteryCapacity(Context ctx) {
+        Object mPowerProfile_ = null;
+        final String POWER_PROFILE_CLASS = "com.android.internal.os.PowerProfile";
+        try {
+            mPowerProfile_ = Class.forName(POWER_PROFILE_CLASS)
+                    .getConstructor(Context.class).newInstance(ctx);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+
+        try {
+            double batteryCapacity = (Double) Class
+                    .forName(POWER_PROFILE_CLASS)
+                    .getMethod("getAveragePower", java.lang.String.class)
+                    .invoke(mPowerProfile_, "battery.capacity");
+            return batteryCapacity;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
+        bluetooth_types = new ArrayList<>();
         randomString = new SontHelperSonty.RandomString();
         requestUniqueIDList = new ArrayList<>();
         requestUniqueIDList_error = new ArrayList<>();
@@ -416,6 +453,44 @@ public class BackgroundService extends AccessibilityService {
         startedLongTime = System.currentTimeMillis();
         startedLongPercent = SontHelperSonty.getBatteryLevel(getApplicationContext());
 
+        BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+            int scale = -1;
+            int level = -1;
+            int voltage = -1;
+            int temp = -1;
+
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                temp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
+                voltage = intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1);
+                BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+                int averageCurrent = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    long chargingtime = bm.computeChargeTimeRemaining();
+                    Log.d("battery_stuff", "chargingtime: " + chargingtime + " | " + averageCurrent);
+                }
+                String dev = "level is " + level + "/" + scale + ", temp is " + temp + ", voltage is " + voltage + " | " + averageCurrent;
+                Log.d("battery_stuff", "level is " + level + "/" + scale + ", temp is " + temp + ", voltage is " + voltage + " | " + averageCurrent);
+                double mah = getBatteryCapacity(getApplicationContext());
+                double mah2 = getBatteryCapacity2(getApplicationContext());
+                long current = SontHelper.CurrentReaderFactory.getValue();
+
+                if (android_id_source_device.equals("SMA510F") || android_id_source_device.equals("SMA530F")) {
+                    //sendMessage_Telegram(android_id_source_device + " | " + dev + " | " + mah + " mah" + " | " + mah2 + " mah_2" + " | " + current);
+                    //Toast.makeText(getApplicationContext(),"level is "+level+"/"+scale+", temp is "+temp+", voltage is "+voltage + " | " + averageCurrent,Toast.LENGTH_SHORT).show();
+                }
+                /*
+                    100% = 4200V
+                    56% = 4070V
+                    0% = 3120V
+                */
+            }
+        };
+        IntentFilter battery_filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        registerReceiver(batteryReceiver, battery_filter);
+
         try {
             android_id = Settings.Secure.getString(getContentResolver(),
                     Settings.Secure.ANDROID_ID);
@@ -423,6 +498,8 @@ public class BackgroundService extends AccessibilityService {
                 android_id_source_device = "SMA510F";
             } else if (android_id.contains("5095d3af471d31d5")) {
                 android_id_source_device = "SMA530F";
+            } else if (android_id.contains("7c14cc71eaeb8667")) {
+                android_id_source_device = "SMA528B_5G";
             } else {
                 android_id_source_device = "ANYA_XIAOMI";
                 /*sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device +
@@ -431,6 +508,9 @@ public class BackgroundService extends AccessibilityService {
         } catch (Exception e) {
             sendMessage_Telegram("LegacyService started! Device ID not obtainable");
         }
+        //String debug = "Android ID: " + android_id + " This is: " + android_id_source_device + " " + Build.MODEL;
+        //sendMessage_Telegram(debug);
+        //Log.d("debugit_",debug);
         excludeRecentApp();
         //region check if first install
 
@@ -444,7 +524,6 @@ public class BackgroundService extends AccessibilityService {
             lastRunLong = Long.parseLong(getSharedPref(getApplicationContext(), "lastrunlong"));
             if (fresh.length() > 0) {
                 FRESH_INSTALL = false;
-                //lastRun = fresh;
                 firstinstalltime = Long.parseLong(getSharedPref(getApplicationContext(), "freshinstalltime"));
             } else {
                 long timee = System.currentTimeMillis();
@@ -728,17 +807,31 @@ public class BackgroundService extends AccessibilityService {
                 android_id_source_device.contains("SMA530F")) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             }
-            locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    TIME, DISTANCE,
-                    locationListener);
+            if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        TIME, DISTANCE,
+                        locationListener);
+            } else {
+                locationManager.requestLocationUpdates(
+                        LocationManager.PASSIVE_PROVIDER,
+                        TIME, DISTANCE,
+                        locationListener);
+            }
         } else {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             }
-            locationManager.requestLocationUpdates(
-                    PROVIDER,
-                    TIME, DISTANCE,
-                    locationListener);
+            if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                locationManager.requestLocationUpdates(
+                        PROVIDER,
+                        TIME, DISTANCE,
+                        locationListener);
+            } else {
+                locationManager.requestLocationUpdates(
+                        LocationManager.PASSIVE_PROVIDER,
+                        TIME, DISTANCE,
+                        locationListener);
+            }
         }
 
         webRequestExecutor.setKeepAliveTime(30, TimeUnit.SECONDS);
@@ -759,14 +852,18 @@ public class BackgroundService extends AccessibilityService {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 if (!wifiManager.isScanThrottleEnabled()) {
-                    boolean succ = wifiManager.startScan();
-                    if (succ == true)
-                        lastokscan = System.currentTimeMillis();
+                    if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                        boolean succ = wifiManager.startScan();
+                        if (succ == true)
+                            lastokscan = System.currentTimeMillis();
+                    }
                 }
             } else {
-                boolean succ = wifiManager.startScan();
-                if (succ == true) {
-                    lastokscan = System.currentTimeMillis();
+                if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                    boolean succ = wifiManager.startScan();
+                    if (succ == true) {
+                        lastokscan = System.currentTimeMillis();
+                    }
                 }
             }
         } catch (Exception e) {
@@ -792,10 +889,12 @@ public class BackgroundService extends AccessibilityService {
                 handleBluetoothDeviceFound(getApplicationContext(), device, true, rssi);
 
                 if (!bluetoothAdapter.isDiscovering()) {
-                    boolean b1 = bluetoothAdapter.startDiscovery();
-                    boolean b2 = bluetoothAdapter.startLeScan(this);
-                    if (b1 || b2)
-                        lastBL_scan = System.currentTimeMillis();
+                    if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                        boolean b1 = bluetoothAdapter.startDiscovery();
+                        boolean b2 = bluetoothAdapter.startLeScan(this);
+                        if (b1 || b2)
+                            lastBL_scan = System.currentTimeMillis();
+                    }
                 }
             }
         };
@@ -809,10 +908,12 @@ public class BackgroundService extends AccessibilityService {
                                 BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
                         handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
                         if (!bluetoothAdapter.isDiscovering()) {
-                            boolean b1 = bluetoothAdapter.startDiscovery();
-                            boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
-                            if (b1 || b2)
-                                lastBL_scan = System.currentTimeMillis();
+                            if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                                boolean b1 = bluetoothAdapter.startDiscovery();
+                                boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+                                if (b1 || b2)
+                                    lastBL_scan = System.currentTimeMillis();
+                            }
                         }
                     } catch (Exception e) {
                         e.printStackTrace();
@@ -821,12 +922,14 @@ public class BackgroundService extends AccessibilityService {
             }
         };
         try {
-            IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-            registerReceiver(classicReceiver, filter);
-            boolean b1 = bluetoothAdapter.startDiscovery();
-            boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
-            if (b1 || b2)
-                lastBL_scan = System.currentTimeMillis();
+            IntentFilter filter2 = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+            registerReceiver(classicReceiver, filter2);
+            if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                boolean b1 = bluetoothAdapter.startDiscovery();
+                boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+                if (b1 || b2)
+                    lastBL_scan = System.currentTimeMillis();
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -837,23 +940,29 @@ public class BackgroundService extends AccessibilityService {
                 WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     if (!wifiManager.isScanThrottleEnabled()) {
+                        if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                            boolean succ = wifiManager.startScan();
+                            if (succ == true) {
+                                lastokscan = System.currentTimeMillis();
+                            }
+                        }
+                    }
+                } else {
+                    if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
                         boolean succ = wifiManager.startScan();
                         if (succ == true) {
                             lastokscan = System.currentTimeMillis();
                         }
                     }
-                } else {
-                    boolean succ = wifiManager.startScan();
-                    if (succ == true) {
-                        lastokscan = System.currentTimeMillis();
-                    }
                 }
 
                 if (!bluetoothAdapter.isDiscovering()) {
-                    boolean b1 = bluetoothAdapter.startDiscovery();
-                    boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
-                    if (b1 || b2)
-                        lastBL_scan = System.currentTimeMillis();
+                    if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+                        boolean b1 = bluetoothAdapter.startDiscovery();
+                        boolean b2 = bluetoothAdapter.startLeScan(leReceiver);
+                        if (b1 || b2)
+                            lastBL_scan = System.currentTimeMillis();
+                    }
                 }
                 handler.postDelayed(this, 3000);
             }
@@ -865,10 +974,10 @@ public class BackgroundService extends AccessibilityService {
                 TrafficStats.getTotalTxBytes()));
 
         nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
-        /*if(android_id_source_device.equals("SMA530F")) {
-            nearby.startAdvertising();
-            nearby.startDiscovering();
-        }*/
+        if (android_id_source_device.equals("SMA530F")) {
+            //nearby.startAdvertising();
+            //nearby.startDiscovering();
+        }
         /*Multimap<String, String> map = ArrayListMultimap.create();
         map.put("ford", "Mustang Mach-E");
         map.put("ford", "Pantera");
@@ -920,9 +1029,9 @@ public class BackgroundService extends AccessibilityService {
         ScanSettings settings = new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES).build();
         List<ScanFilter> sf = new ArrayList<ScanFilter>();
 
-        ScanFilter filter = new ScanFilter.Builder()
+        ScanFilter filterr = new ScanFilter.Builder()
                 .build();
-        sf.add(filter);
+        sf.add(filterr);
 
         ScanCallback scb = new ScanCallback() {
             @Override
@@ -961,6 +1070,7 @@ public class BackgroundService extends AccessibilityService {
                                 scanRecord.getBytes()
                         );
                 String scanrecordNAME2 = scanRecord.getDeviceName();
+                //endregion
                 BluetoothDevice device = result.getDevice();
                 Thread bondthread = new Thread() {
                     @Override
@@ -970,10 +1080,10 @@ public class BackgroundService extends AccessibilityService {
                         //sendMessage_Telegram("Bonding Requested FROM: " + android_id_source_device + " TO: " + device.getAddress() + " | " + succ + " | " + succ2);
                     }
                 };
-                //endregion
-                bondthread.start();
-                BackgroundService.handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
+                //bondthread.start();
+                handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
                 String deviceClass = getDeviceClass(device);
+                bluetooth_types.add(deviceClass);
                 BackgroundService.updateCurrent_exception(
                         getApplicationContext(),
                         "Device Found",
@@ -1005,14 +1115,17 @@ public class BackgroundService extends AccessibilityService {
 
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         BluetoothLeScanner blsc = adapter.getBluetoothLeScanner();
-        blsc.startScan(sf, settings, scb);
-
+        if (android_id_source_device.equals("ANYA_XIAOMI") == false) {
+            blsc.startScan(sf, settings, scb);
+        }
         final BroadcastReceiver BL_BOND_RECEIVER = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String action = intent.getAction();
                 BluetoothDevice bluetoothDevice = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 String DEVICE_CLASS = getDeviceClass(bluetoothDevice);
+                if (android_id_source_device.equals("SMA530F"))
+                    bluetooth_types.add(DEVICE_CLASS);
                 updateCurrent(getApplicationContext(), "Bluetooth Found",
                         DEVICE_CLASS + " | " + bluetoothDevice.getAddress());
 
@@ -1188,22 +1301,11 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
-    //Here Manifest.permission.READ_PHONE_STATS is needed
-    private String getSubscriberId(Context context, int networkType) {
-        if (ConnectivityManager.TYPE_MOBILE == networkType) {
-            String TODO = "true";
-            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-            int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE);
-
-            return tm.getSubscriberId();
-        }
-        return "";
-    }
-
     public static boolean handleBluetoothDeviceFound(Context ctx, BluetoothDevice device, boolean isLe, int rssi) {
         boolean isnew = decideIfNew_blue(device);
         //isnew = true;
         if (isnew) {
+            vibrate(ctx);
             try {
                 String utf_letter = locationToStringAddress(ctx, CURRENT_LOCATION)
                         .replaceAll("ő", "ö");
@@ -1954,7 +2056,6 @@ public class BackgroundService extends AccessibilityService {
         public static int cnt_httpError;
         public static String UNIQUE_ID = BackgroundService.randomString.nextString();
 
-
         public static String executeRequest(final String host, final int port, final String URL,
                                             final boolean METHOD_POST,
                                             final String postData) {
@@ -2023,6 +2124,7 @@ public class BackgroundService extends AccessibilityService {
                 };
                 webRequestExecutor.submit(retryRunnable);
                 //e.printStackTrace();
+                //BackgroundService.httpErrorList.add(this);
                 Log.d("Live_Http_GET_SingleRecord", "network error");
                 return null;
             }
