@@ -993,7 +993,7 @@ public class MainActivity extends AppCompatActivity {
         HashMap<String, Integer> freqMap = new HashMap<String, Integer>();
         Set<String> mySet = new HashSet<String>(Arrays.asList(b));
         for (String s : mySet) {
-            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s);
+            summed_for_notif += s + ": " + Collections.frequency(Arrays.asList(b), s) + " ";
         }
 
         average = (double) sum / (double) infos.size();
