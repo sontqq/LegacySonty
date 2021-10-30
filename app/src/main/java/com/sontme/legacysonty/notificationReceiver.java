@@ -1,28 +1,51 @@
 package com.sontme.legacysonty;
 
+import static android.content.Context.ALARM_SERVICE;
+
 import android.Manifest;
-import android.app.NotificationManager;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
-import android.util.Log;
-import android.view.WindowManager;
-import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
-
-import java.util.Iterator;
-import java.util.Set;
+import androidx.core.content.ContextCompat;
 
 public class notificationReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
         int requestCode = intent.getExtras().getInt("requestCode");
-        if (intent.getAction() == "exit" || requestCode == 99) {
+        if (intent.getAction().equals("exit") || requestCode == 159) {
+            Intent i = new Intent(context, BackgroundService.class);
+            try {
+                Intent intent2 = new Intent(context, Alarm.class);
+                intent2.putExtra("requestCode", 66);
+                PendingIntent sender = PendingIntent.getBroadcast(context, 66, intent2, 0);
+                AlarmManager alarmManager = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+                alarmManager.cancel(sender);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
 
+            try {
+                context.stopService(i);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            try {
+                android.os.Process.killProcess(android.os.Process.myPid());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            try {
+                System.exit(1);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         if (intent.getAction() == "network" || requestCode == 101) {
             try {

@@ -9,6 +9,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -17,8 +19,6 @@ import android.content.ServiceConnection;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffColorFilter;
 import android.location.GnssStatus;
 import android.location.GpsStatus;
 import android.location.Location;
@@ -32,6 +32,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.telephony.CellInfo;
@@ -50,10 +51,12 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.SeekBar;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -113,6 +116,7 @@ public class MainActivity extends AppCompatActivity {
     Button BTN_wifi_color;
     Button BTN_scans;
     final int[] y = {1};
+    boolean doubleBackToExitPressedOnce = false;
 
     public ServiceConnection mServerConn = new ServiceConnection() {
         @Override
@@ -139,13 +143,14 @@ public class MainActivity extends AppCompatActivity {
         String[] PERMISSIONS = {
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                //Manifest.permission.READ_CONTACTS,
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE,
                 Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
                 Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.ACCESS_NETWORK_STATE,
-                Manifest.permission.READ_PHONE_STATE
+                Manifest.permission.ACCESS_NETWORK_STATE/*,*/
+                //Manifest.permission.READ_PHONE_STATE
         };
 
         String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
@@ -167,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
         Intent powerIgnoreIntent = new Intent();
         powerIgnoreIntent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
         powerIgnoreIntent.setData(Uri.parse("package:" + packageName));
-        startActivity(powerIgnoreIntent);
+        //startActivity(powerIgnoreIntent);
 
     }
 
@@ -186,20 +191,91 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
+    public void showLocationAlert() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Hely adatok hozzáférése a háttérben");
+        builder.setMessage("Az alkalmazás működéséhez szükség van a hely adatokra a háttérben, ha az alkalmazás be van zárva");
+        builder.setPositiveButton("YES", new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int which) {
+                //Prompt the user once explanation has been shown
+
+                dialog.dismiss();
+            }
+        });
+        builder.setNegativeButton("NO", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                System.exit(1);
+                dialog.dismiss();
+            }
+        });
+        AlertDialog alert = builder.create();
+        alert.show();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        managePermissions();
+        //showLocationAlert();
 
+        ActivityResultLauncher<String[]> locationPermissionRequest =
+                registerForActivityResult(new ActivityResultContracts
+                                .RequestMultiplePermissions(), result -> {
+                            Boolean fineLocationGranted = result.getOrDefault(
+                                    Manifest.permission.ACCESS_FINE_LOCATION, false);
+                            Boolean coarseLocationGranted = result.getOrDefault(
+                                    Manifest.permission.ACCESS_COARSE_LOCATION, false);
+                            if (fineLocationGranted != null && fineLocationGranted) {
+                                //ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 100);
+                            } else if (coarseLocationGranted != null && coarseLocationGranted) {
+                                // Only approximate location access granted.
+                                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 101);
+                            } else {
+                                // No location access granted.
+                                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 102);
+                            }
+                        }
+                );
+        locationPermissionRequest.launch(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        });
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ImageView image = new ImageView(this);
+            image.setImageResource(R.drawable.gpssatellite);
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setView(image);
+            builder.setTitle("Hely adatok hozzáférése a háttérben");
+            builder.setMessage("Az alkalmazás helyes működéséhez szükség van a hely adatokra a háttérben, ha az alkalmazás be van zárva.\nEngedélyezi az alkalmazás számára a helyadatokhoz való hozzáférést a háttérben?");
+            builder.setPositiveButton("YES", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int which) {
+                    ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 100);
+                    dialog.dismiss();
+                }
+            });
+            builder.setNegativeButton("NO", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    //System.exit(1);
+                    dialog.dismiss();
+                }
+            });
+            AlertDialog alert = builder.create();
+            alert.show();
+        }
+        //managePermissions();
         Intent i = new Intent(
                 MainActivity.this, BackgroundService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, i);
+            ContextCompat.startForegroundService(MainActivity.this, i);
         } else {
             startService(i);
         }
+
 
         runnable_no = new Runnable() {
             @Override
@@ -243,125 +319,126 @@ public class MainActivity extends AppCompatActivity {
 
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            managePermissions();
+            //managePermissions();
         }
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
-            locationManager.addGpsStatusListener(new GpsStatus.Listener() {
-                @Override
-                public void onGpsStatusChanged(int event) {
-                    try {
-                        switch (event) {
-                            case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
-                                if (BackgroundService.CURRENT_LOCATION != null) {
-                                    if (ActivityCompat.checkSelfPermission(getApplicationContext(),
-                                            Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                                            ActivityCompat.checkSelfPermission(getApplicationContext(),
-                                                    Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
+                locationManager.addGpsStatusListener(new GpsStatus.Listener() {
+                    @Override
+                    public void onGpsStatusChanged(int event) {
+                        try {
+                            switch (event) {
+                                case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
+                                    if (BackgroundService.CURRENT_LOCATION != null) {
+                                        if (ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                                                ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                        }
+                                        long lastUpdate;
+                                        String ago = "no info yet";
+                                        try {
+                                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
+                                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
+                                            ago = getTimeAgo(lastUpdate);
+                                            if (ago == null)
+                                                ago = getTimeAgo(System.currentTimeMillis());
+                                            if (ago == null)
+                                                ago = String.valueOf(System.currentTimeMillis());
+                                        } catch (Exception e) {
+                                            lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
+                                        }
+                                        if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
+                                                < (10000)) {
+                                            txt4.setText(Html.fromHtml("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() + "<br>" +
+                                                    "STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                                        } else {
+                                            txt4.setText(Html.fromHtml("LOST GPS FIX [" +
+                                                    BackgroundService.LOCATON_CHANGE_COUNTER +
+                                                    "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                                        }
                                     }
-                                    long lastUpdate;
-                                    String ago = "no info yet";
-                                    try {
-                                        lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
-                                        lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
-                                        ago = getTimeAgo(lastUpdate);
-                                        if (ago == null)
-                                            ago = getTimeAgo(System.currentTimeMillis());
-                                        if (ago == null)
-                                            ago = String.valueOf(System.currentTimeMillis());
-                                    } catch (Exception e) {
-                                        lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
-                                    }
-                                    if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
-                                            < (10000)) {
-                                        txt4.setText(Html.fromHtml("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() + "<br>" +
-                                                "STILL HAS GPS FIX [" + BackgroundService.LOCATON_CHANGE_COUNTER + "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                                    } else {
-                                        txt4.setText(Html.fromHtml("LOST GPS FIX [" +
-                                                BackgroundService.LOCATON_CHANGE_COUNTER +
-                                                "] <b>" + ago + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                                    }
-                                }
-                                break;
-                            case GpsStatus.GPS_EVENT_FIRST_FIX:
-                                txt4.setText("FIRST LOCATION " +
-                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                                break;
-                            case GpsStatus.GPS_EVENT_STARTED:
-                                txt4.setText("GPS STARTED " +
-                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                                break;
-                            case GpsStatus.GPS_EVENT_STOPPED:
-                                txt4.setText("GPS STOPPED " +
-                                        Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                                break;
+                                    break;
+                                case GpsStatus.GPS_EVENT_FIRST_FIX:
+                                    txt4.setText("FIRST LOCATION " +
+                                            Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                                    break;
+                                case GpsStatus.GPS_EVENT_STARTED:
+                                    txt4.setText("GPS STARTED " +
+                                            Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                                    break;
+                                case GpsStatus.GPS_EVENT_STOPPED:
+                                    txt4.setText("GPS STOPPED " +
+                                            Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                                    break;
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
                         }
-                    } catch (Exception e) {
-                        e.printStackTrace();
                     }
-                }
-            });
-        } else {
-            locationManager.registerGnssStatusCallback(new GnssStatus.Callback() {
-                @Override
-                public void onStarted() {
-                    super.onStarted();
-                    try {
-                        txt3.setText("GPS/GNSS Started " +
-                                Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                    } catch (Exception e) {
-                        txt3.setText("GPS/GNSS Started");
-                    }
-                }
-
-                @Override
-                public void onStopped() {
-                    super.onStopped();
-                    try {
-                        txt3.setText("GPS/GNSS Stopped " +
-                                Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                    } catch (Exception e) {
-                        txt3.setText("GPS/GNSS Stopped");
-                    }
-                }
-
-                @Override
-                public void onFirstFix(int ttffMillis) {
-                    super.onFirstFix(ttffMillis);
-                    try {
-                        txt3.setText("First FIX: " + Html.fromHtml("<b>" + BackgroundService.getTimeAgo(ttffMillis) + "</b>", Html.FROM_HTML_MODE_LEGACY));
-                    } catch (Exception e) {
-                        txt3.setText("First FIX: " + ttffMillis);
-                    }
-                }
-
-                @Override
-                public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
-                    super.onSatelliteStatusChanged(status);
-                    try {
-                        ArrayList<String> summed_constellation = new ArrayList<>();
-                        String summed_for_notif = "";
-                        for (int i = 0; i < status.getSatelliteCount(); i++) {
-                            String type = convertConstellation(status.getConstellationType(i));
-                            summed_constellation.add(type);
+                });
+            } else {
+                locationManager.registerGnssStatusCallback(new GnssStatus.Callback() {
+                    @Override
+                    public void onStarted() {
+                        super.onStarted();
+                        try {
+                            txt3.setText("GPS/GNSS Started " +
+                                    Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                        } catch (Exception e) {
+                            txt3.setText("GPS/GNSS Started");
                         }
-                        Set<String> uniqueSet = new HashSet<String>(
-                                summed_constellation);
-                        TreeSet<String> orderedSet = new TreeSet(uniqueSet);
-                        orderedSet = (TreeSet) orderedSet.descendingSet();
-                        for (String s : orderedSet) {
-                            summed_for_notif += s + ": " + Collections.frequency(summed_constellation, s) + "\n";
-                        }
-
-                        txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
-                                "\nSatellite count: " + status.getSatelliteCount() + "\n" +
-                                summed_for_notif);
-                    } catch (Exception e) {
-                        txt4.setText(e.getMessage());
                     }
-                }
-            });
+
+                    @Override
+                    public void onStopped() {
+                        super.onStopped();
+                        try {
+                            txt3.setText("GPS/GNSS Stopped " +
+                                    Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                        } catch (Exception e) {
+                            txt3.setText("GPS/GNSS Stopped");
+                        }
+                    }
+
+                    @Override
+                    public void onFirstFix(int ttffMillis) {
+                        super.onFirstFix(ttffMillis);
+                        try {
+                            txt3.setText("First FIX: " + Html.fromHtml("<b>" + BackgroundService.getTimeAgo(ttffMillis) + "</b>", Html.FROM_HTML_MODE_LEGACY));
+                        } catch (Exception e) {
+                            txt3.setText("First FIX: " + ttffMillis);
+                        }
+                    }
+
+                    @Override
+                    public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
+                        super.onSatelliteStatusChanged(status);
+                        try {
+                            ArrayList<String> summed_constellation = new ArrayList<>();
+                            String summed_for_notif = "";
+                            for (int i = 0; i < status.getSatelliteCount(); i++) {
+                                String type = convertConstellation(status.getConstellationType(i));
+                                summed_constellation.add(type);
+                            }
+                            Set<String> uniqueSet = new HashSet<String>(
+                                    summed_constellation);
+                            TreeSet<String> orderedSet = new TreeSet(uniqueSet);
+                            orderedSet = (TreeSet) orderedSet.descendingSet();
+                            for (String s : orderedSet) {
+                                summed_for_notif += s + ": " + Collections.frequency(summed_constellation, s) + "\n";
+                            }
+
+                            txt4.setText("Provider: " + BackgroundService.CURRENT_LOCATION.getProvider() +
+                                    "\nSatellite count: " + status.getSatelliteCount() + "\n" +
+                                    summed_for_notif);
+                        } catch (Exception e) {
+                            txt4.setText(e.getMessage());
+                        }
+                    }
+                });
+            }
         }
-
         txt = findViewById(R.id.txt);
         statsTextview = findViewById(R.id.txt2);
         txt3 = findViewById(R.id.txt3);
@@ -401,6 +478,7 @@ public class MainActivity extends AppCompatActivity {
         });
         */
 
+
         try {
             bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
         } catch (Exception e) {
@@ -411,12 +489,12 @@ public class MainActivity extends AppCompatActivity {
         statsHandler.postDelayed(statsRunnable = new Runnable() {
             public void run() {
                 try {
-                    Intent i = new Intent(MainActivity.this, BackgroundService.class);
+                    /*Intent i = new Intent(MainActivity.this, BackgroundService.class);
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         ContextCompat.startForegroundService(getApplicationContext(), i);
                     } else {
                         startService(i);
-                    }
+                    }*/
                     int executorServiceQueueSize = BackgroundService.webRequestExecutor.getQueue().size();
                     int executorServiceActiveCount = BackgroundService.webRequestExecutor.getActiveCount();
                     int executorServiceMax = BackgroundService.webRequestExecutor.getLargestPoolSize();
@@ -498,7 +576,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 try {
-                    ArrayList<ScanResult> openap = BackgroundService.getStrongestOpenAp(
+                    ArrayList<ScanResult> openap = BackgroundService.OpenWifiManager.getStrongestOpenAp(
                             BackgroundService.wifiManager.getScanResults()
                     );
                     String message = "Possible: " + openap.size() + "<br><br>";
@@ -514,7 +592,7 @@ public class MainActivity extends AppCompatActivity {
                         builder.setPositiveButton("YES",
                                 new DialogInterface.OnClickListener() {
                                     public void onClick(DialogInterface dialog, int which) {
-                                        BackgroundService.enableApToConnect(
+                                        BackgroundService.OpenWifiManager.enableApToConnect(
                                                 openap.get(openap.size() - 1),
                                                 true);
                                         dialog.dismiss();
@@ -607,6 +685,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
                 dialog.show();
+
             }
         });
 
@@ -770,7 +849,11 @@ public class MainActivity extends AppCompatActivity {
                     BTN_wifi_color.setText("[" + wifiInfo.getRssi() + "] > Color: "
                             + wifiColor + " Time: " + System.currentTimeMillis());
 
-                    getcelldata();
+                    try {
+                        getcelldata();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 } else {
 
                     getcelldata();
@@ -798,6 +881,25 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
         }
 
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (doubleBackToExitPressedOnce) {
+            super.onBackPressed();
+            return;
+        }
+
+        this.doubleBackToExitPressedOnce = true;
+        Toast.makeText(this, "Press again to exit", Toast.LENGTH_SHORT).show();
+
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+
+            @Override
+            public void run() {
+                doubleBackToExitPressedOnce = false;
+            }
+        }, 2000);
     }
 
     void showNotificationOld(String title, String text) {
@@ -1060,13 +1162,13 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onResume() {
-        Intent i = new Intent(MainActivity.this, BackgroundService.class);
+        /*Intent i = new Intent(MainActivity.this, BackgroundService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ContextCompat.startForegroundService(this, i);
         } else {
             startService(i);
         }
-        bindService(i, mServerConn, Context.BIND_AUTO_CREATE);
+        bindService(i, mServerConn, Context.BIND_AUTO_CREATE);*/
 
         try {
             BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()

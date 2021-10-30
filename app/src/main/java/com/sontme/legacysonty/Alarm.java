@@ -38,7 +38,7 @@ public class Alarm extends BroadcastReceiver {
         intent.putExtra("requestCode", 66);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 66, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         alarmMgr.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis(),
-                1 * 30 * 1000, pendingIntent);
+                5 * 60 * 1000, pendingIntent);
 
     }
 

@@ -24,6 +24,7 @@ import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -38,15 +39,16 @@ import android.location.LocationProvider;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.TrafficStats;
+import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
-import android.net.wifi.rtt.WifiRttManager;
 import android.os.AsyncTask;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.ParcelUuid;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -58,6 +60,7 @@ import android.view.accessibility.AccessibilityEvent;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
@@ -67,9 +70,14 @@ import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
 import com.google.android.gms.nearby.connection.Strategy;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
+import com.samsung.sdk.sperf.CustomParams;
+import com.samsung.sdk.sperf.PerformanceManager;
+import com.samsung.sdk.sperf.SPerf;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -79,27 +87,35 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
@@ -228,6 +244,58 @@ public class BackgroundService extends AccessibilityService {
         @Override
         public void onReceive(Context context, Intent intent) {
             boolean newdata = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false);
+            List<ScanResult> scanresult = wifiManager.getScanResults();
+            if (newdata)
+                Log.d("wifiscan_test1", "newdata: " + newdata + " apswL_size: " + aplist.size());
+            for (ScanResult sr : scanresult) {
+                if (sr.SSID.equals("UPCAEDB2C3") && newdata) {
+                    if (CURRENT_LOCATION != null) {
+                        Log.d("wifiscan_test2", "" + sr.SSID + " | " + sr.BSSID + " | " + sr.level + " | " + CURRENT_LOCATION.getLatitude() + " | " + CURRENT_LOCATION.getLongitude());
+                        ApWithLocation apWithLocation;
+                        try {
+                            apWithLocation = aplist.get(sr.BSSID);
+                        } catch (Exception e) {
+                            apWithLocation = new ApWithLocation(sr.BSSID, sr.level, CURRENT_LOCATION);
+                            aplist.put(sr.BSSID, apWithLocation);
+                            e.printStackTrace();
+                        }
+
+                        aplist.put(sr.BSSID, apWithLocation);
+                        try {
+                            if (aplist.get(sr.BSSID).rssi < sr.level) {
+                                aplist.put(sr.BSSID, apWithLocation);
+                                Log.d("wifiscan_test2_added", "added: " + sr.BSSID + " | " + sr.level);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+
+                    }
+                }
+                if (aplist.containsKey(sr.BSSID)) {
+//                    sendMessage_Telegram("benne van! " + sr.BSSID + " " + aplist.get(sr.BSSID).toString());
+                }
+            }
+            for (Map.Entry<String, ApWithLocation> entry : aplist.entrySet()) {
+                /*String key = entry.getKey();
+                ApWithLocation value = entry.getValue();
+                if (value != null) {
+                    sendMessage_Telegram("key: " + key);
+                    sendMessage_Telegram("val: " + value.toString());
+                } else {
+                    //sendMessage_Telegram("value is null :( " + System.currentTimeMillis());
+                }*/
+                /*try {
+                    ApWithLocation ap = value;
+                    if(ap != null) {
+                        sendMessage_Telegram("AP: " + ap.getMac() + " | " + ap.getRssi() + " | " + ap.getLocation().getLatitude() + " " + ap.getLocation().getLongitude());
+                    }else{
+                        sendMessage_Telegram("Ap is null! " + aplist.size());
+                    }
+                }catch (Exception e){
+                    e.printStackTrace();
+                }*/
+            }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     if (!wifiManager.isScanThrottleEnabled()) {
@@ -354,7 +422,9 @@ public class BackgroundService extends AccessibilityService {
     }
 
     public void excludeRecentApp() {
-        if (!android_id_source_device.contains("SMA510F")) {
+        if (!android_id_source_device.contains("SMA510F") ||
+                !android_id_source_device.contains("SMA528B_5G") ||
+                !android_id_source_device.contains("SMA530F")) {
             ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
             List<ActivityManager.AppTask> tasks = am.getAppTasks();
             if (tasks != null && tasks.size() > 0)
@@ -373,48 +443,14 @@ public class BackgroundService extends AccessibilityService {
 
     public static ArrayList<String> bluetooth_types;
     public static ArrayList<Live_Http_GET_SingleRecord> httpErrorList = new ArrayList<>();
-
-    public static long getBatteryCapacity2(Context context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            BatteryManager mBatteryManager = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
-            Integer chargeCounter = mBatteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
-            Integer capacity = mBatteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-
-            if (chargeCounter == Integer.MIN_VALUE || capacity == Integer.MIN_VALUE)
-                return 0;
-
-            return (chargeCounter / capacity) * 100;
-        }
-        return 0;
-    }
-
-    public static double getBatteryCapacity(Context ctx) {
-        Object mPowerProfile_ = null;
-        final String POWER_PROFILE_CLASS = "com.android.internal.os.PowerProfile";
-        try {
-            mPowerProfile_ = Class.forName(POWER_PROFILE_CLASS)
-                    .getConstructor(Context.class).newInstance(ctx);
-        } catch (Exception e) {
-            e.printStackTrace();
-            return 0;
-        }
-
-        try {
-            double batteryCapacity = (Double) Class
-                    .forName(POWER_PROFILE_CLASS)
-                    .getMethod("getAveragePower", java.lang.String.class)
-                    .invoke(mPowerProfile_, "battery.capacity");
-            return batteryCapacity;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return 0;
-        }
-    }
+    static int locc = 0;
+    public static HashMap<String, ApWithLocation> aplist;
 
     @Override
     public void onCreate() {
         super.onCreate();
         bluetooth_types = new ArrayList<>();
+        aplist = new HashMap<>();
         randomString = new SontHelperSonty.RandomString();
         requestUniqueIDList = new ArrayList<>();
         requestUniqueIDList_error = new ArrayList<>();
@@ -645,9 +681,21 @@ public class BackgroundService extends AccessibilityService {
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(final Location location) {
+                /*if(android_id_source_device.equals("SMA530F")){
+                    String mem = getMemoryInfoString();
+                }*/
+                //sendMessage_Telegram(android_id_source_device + " | " + mem);
+
                 CURRENT_LOCATION = location;
+                Date date = new Date(location.getTime());
+                SimpleDateFormat sdf = new SimpleDateFormat("s");
+                String textTime = sdf.format(date);
+                showOngoing("#" + LOCATON_CHANGE_COUNTER + " | " +
+                        Live_Http_GET_SingleRecord.lastHandledURL + "\n\n" +
+                        " Time: " + textTime + " seconds ago | " + CURRENT_LOCATION.getProvider());
                 LOCATON_CHANGE_COUNTER++;
                 CURRENT_LOCATION_LASTTIME = SystemClock.elapsedRealtime();
+                //showOngoing2(getApplicationContext(),"ScanSize: "+wifiManager.getScanResults().size());
                 try {
                     for (final ScanResult accessPoint : wifiManager.getScanResults()) {
                         toRegisterAP = decideIfNew_wifi(wifiManager.getScanResults());
@@ -829,10 +877,14 @@ public class BackgroundService extends AccessibilityService {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             }
             if (android_id_source_device.equals("ANYA") == false) {
-                locationManager.requestLocationUpdates(
-                        PROVIDER,
-                        TIME, DISTANCE,
-                        locationListener);
+                try {
+                    locationManager.requestLocationUpdates(
+                            PROVIDER,
+                            TIME, DISTANCE,
+                            locationListener);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             } else {
                 locationManager.requestLocationUpdates(
                         LocationManager.PASSIVE_PROVIDER,
@@ -895,7 +947,7 @@ public class BackgroundService extends AccessibilityService {
                 }
 
                 handleBluetoothDeviceFound(getApplicationContext(), device, true, rssi);
-
+                //showOngoing2(getApplicationContext(),"Bluetooth found: " + device.getAddress() + " | " + getDeviceClass(device));
                 if (!bluetoothAdapter.isDiscovering()) {
                     if (android_id_source_device.equals("ANYA") == false) {
                         boolean b1 = bluetoothAdapter.startDiscovery();
@@ -915,6 +967,7 @@ public class BackgroundService extends AccessibilityService {
                         int rssi = intent.getShortExtra(
                                 BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
                         handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
+                        //showOngoing2(getApplicationContext(),"Bluetooth found: " + device.getAddress() + " | " + getDeviceClass(device));
                         if (!bluetoothAdapter.isDiscovering()) {
                             if (android_id_source_device.equals("ANYA") == false) {
                                 boolean b1 = bluetoothAdapter.startDiscovery();
@@ -976,17 +1029,15 @@ public class BackgroundService extends AccessibilityService {
             }
         }, 5000);
 
-        Log.d("netw_", "Global Mobile RX: " + roundBandwidth(
-                TrafficStats.getTotalRxBytes()));
-        Log.d("netw_", "Global Mobile TX: " + roundBandwidth(
-                TrafficStats.getTotalTxBytes()));
+        //Log.d("netw_", "Global Mobile RX: " + roundBandwidth(TrafficStats.getTotalRxBytes()));
+        //Log.d("netw_", "Global Mobile TX: " + roundBandwidth(TrafficStats.getTotalTxBytes()));
 
         nearby = new NearbyHandler(getApplicationContext(), Strategy.P2P_CLUSTER);
         if (android_id_source_device.equals("SMA530F")) {
             //nearby.startAdvertising();
             //nearby.startDiscovering();
         }
-        /*Multimap<String, String> map = ArrayListMultimap.create();
+        Multimap<String, String> map = ArrayListMultimap.create();
         map.put("ford", "Mustang Mach-E");
         map.put("ford", "Pantera");
         Collection<String> values = map.get("ford");
@@ -994,7 +1045,7 @@ public class BackgroundService extends AccessibilityService {
         Log.d("multimap_0_", String.valueOf(list.get(0)));
         Log.d("multimap_1_", String.valueOf(list.get(1)));
         HashMap<String, ArrayList<String>> multiValueMap = new HashMap<String, ArrayList<String>>();
-        */
+
         if (android_id_source_device.equals("ANYA")) {
             final Handler handler_restarter = new Handler();
             handler_restarter.postDelayed(new Runnable() {
@@ -1059,6 +1110,7 @@ public class BackgroundService extends AccessibilityService {
                     int rssi = result.getRssi();
                     BluetoothDevice device = result.getDevice();
                     BackgroundService.handleBluetoothDeviceFound(getApplicationContext(), device, true, rssi);
+                    //showOngoing2(getApplicationContext(),"Bluetooth found: " + device.getAddress() + " | " + getDeviceClass(device));
                 }
                 ScanRecord scanRecord = result.getScanRecord();
                 int rssi = result.getRssi();
@@ -1091,6 +1143,7 @@ public class BackgroundService extends AccessibilityService {
                 //bondthread.start();
                 handleBluetoothDeviceFound(getApplicationContext(), device, false, rssi);
                 String deviceClass = getDeviceClass(device);
+
                 bluetooth_types.add(deviceClass);
                 BackgroundService.updateCurrent_exception(
                         getApplicationContext(),
@@ -1192,10 +1245,31 @@ public class BackgroundService extends AccessibilityService {
             Log.d("debugit_", "" + max + " | " + wpa31 + " | " + wpa32 + " | " + ghz6);
         }
 
-
+        try {
+            //SPerf.setDebugModeEnabled(true); // optional - default is false
+            boolean succ = SPerf.initialize(this.getApplicationContext());
+            int vercode = SPerf.getVersionCode();
+            String vername = SPerf.getVersionName();
+            Log.d("SPERF_", "vercode: " + vercode);
+            Log.d("SPERF_", "vername: " + vername);
+            Log.d("SPERF_", "Initialization= " + succ);
+            PerformanceManager pm = PerformanceManager.getInstance();
+            CustomParams params = new CustomParams();
+            params.add(CustomParams.TYPE_TASK_AFFINITY, 2, Integer.MAX_VALUE);
+            params.add(CustomParams.TYPE_TASK_PRIORITY, 4, Integer.MAX_VALUE);
+            params.add(CustomParams.TYPE_CPU_MAX, 0, Integer.MAX_VALUE);
+            params.add(CustomParams.TYPE_GPU_MAX, 0, Integer.MAX_VALUE);
+            params.add(CustomParams.TYPE_BUS_MAX, 0, Integer.MAX_VALUE);
+            params.add(CustomParams.TYPE_CPU_CORE_NUM_MAX, 1, Integer.MAX_VALUE);
+            int returned = pm.start(params);
+            Log.d("SPERF_", "Returned= " + returned);
+        } catch (Exception e) {
+            Log.d("SPERF_", "SPERF error! " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
-    private String getDeviceClass(BluetoothDevice bluetoothDevice) {
+    private static String getDeviceClass(BluetoothDevice bluetoothDevice) {
         int devclass = bluetoothDevice.getBluetoothClass().getDeviceClass();
         if (devclass == BluetoothClass.Device.Major.COMPUTER) {
             return "PC";
@@ -1322,7 +1396,7 @@ public class BackgroundService extends AccessibilityService {
         boolean isnew = decideIfNew_blue(device);
         //isnew = true;
         if (isnew) {
-            vibrate(ctx);
+            //vibrate(ctx);
             try {
                 String utf_letter = locationToStringAddress(ctx, CURRENT_LOCATION)
                         .replaceAll("ő", "ö");
@@ -1330,34 +1404,12 @@ public class BackgroundService extends AccessibilityService {
                 utf_letter = utf_letter.replaceAll("Ő", "Ö");
                 utf_letter = utf_letter.replaceAll("Ű", "Ü");
                 final String[] tmpDevName = {"null"};
+                String devclass = getDeviceClass(device);
                 if (device.getName() == null || device.getName().length() < 1 || device.getName().equals("null")) {
-                    BluetoothManager tmpBluetoothManager = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
-                    tmpDevName[0] = tmpBluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
-                    Log.d("MAC_API_TEST_", "name1='" + tmpDevName[0] + "'");
-                    String url = "http://macvendors.co/api/vendorname/" + device.getAddress();
-
-                    AndroidNetworking.get(url)
-                            .setPriority(Priority.IMMEDIATE)
-                            .build()
-                            .getAsString(new StringRequestListener() {
-                                @Override
-                                public void onResponse(String response) {
-                                    Log.d("MAC_API_TEST_", "RESPONSE_1='" + response + "'");
-                                    //sendMessage_Telegram("MACRESPONSE_1=" + response);
-                                    if (!response.equals("No vendor")) {
-                                        tmpDevName[0] = response.trim();
-                                    }
-                                }
-
-                                @Override
-                                public void onError(ANError error) {
-                                    Log.d("MAC_API_TEST_", "ERROR! " + error.getMessage());
-                                    error.printStackTrace();
-                                }
-                            });
+                    BluetoothManager BluetoothManager = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
+                    tmpDevName[0] = BluetoothManager.getAdapter().getRemoteDevice(device.getAddress()).getName();
+                    //String url = "http://macvendors.co/api/vendorname/" + device.getAddress();
                 }
-                Log.d("MAC_API_TEST_", "name2='" + tmpDevName[0] + "'");
-
                 final String reqBody =
                         "?id=0&name=" + tmpDevName[0] +
                                 "&address=" + utf_letter +
@@ -1367,7 +1419,8 @@ public class BackgroundService extends AccessibilityService {
                                 "&islowenergy=" + isLe +
                                 "&source=" + "legacy_sonty_" + android_id_source_device +
                                 "&long=" + CURRENT_LOCATION.getLongitude() +
-                                "&lat=" + CURRENT_LOCATION.getLatitude();
+                                "&lat=" + CURRENT_LOCATION.getLatitude() +
+                                "&devclass=" + devclass;
 
                 Runnable webReqRunnable_bl = (Runnable & Serializable) () -> {
                     RequestTaskListener requestTaskListener_bl = new RequestTaskListener() {
@@ -1448,9 +1501,9 @@ public class BackgroundService extends AccessibilityService {
                                     }
                                 }
                             };
-                    RequestTask_Bluetooth_indi requestTask_bl_indi = new RequestTask_Bluetooth_indi();
-                    requestTask_bl_indi.addListener(requestTaskListener_bl_indi);
-                    requestTask_bl_indi.execute(reqBody);
+                    //RequestTask_Bluetooth_indi requestTask_bl_indi = new RequestTask_Bluetooth_indi();
+                    //requestTask_bl_indi.addListener(requestTaskListener_bl_indi);
+                    //requestTask_bl_indi.execute(reqBody);
                 };
                 Future<?> future_indi = BackgroundService.webRequestExecutor.submit(webReqRunnable_bl_indi);
                 webReqRunnablesList.add(webReqRunnable_bl_indi);
@@ -1468,66 +1521,8 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
-    public static ArrayList<ScanResult> getStrongestOpenAp(List<ScanResult> scanResult) {
-        Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
-            @Override
-            public int compare(android.net.wifi.ScanResult o1, android.net.wifi.ScanResult o2) {
-                return Integer.compare(o1.level, o2.level);
-            }
-        });
-        // ScanResult are now ordered by DBM
-
-        ArrayList<android.net.wifi.ScanResult> onlyOpenAps = new ArrayList<>();
-
-        for (android.net.wifi.ScanResult sr : scanResult) {
-            if (getScanResultSecurity(sr).equalsIgnoreCase("OPEN")) {
-                onlyOpenAps.add(sr);
-            }
-        }
-        //android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0);
-        /*int i = 0;
-        for(ScanResult sr : onlyOpenAps){
-            Log.d("OPEN_AP_",""+sr.SSID + " -> " + sr.level);
-            i++;
-        }*/
-        //Log.d("OPEN_AP_","First 0: " + onlyOpenAps.get(0).SSID + " -> " + onlyOpenAps.get(0).level);
-        //if(onlyOpenAps.size() > 1)
-        //Log.d("OPEN_AP_","LAST " + (onlyOpenAps.size()-1)+": " + onlyOpenAps.get(onlyOpenAps.size()-1).SSID + " -> " + onlyOpenAps.get(onlyOpenAps.size()-1).level);
-        //return strongestOpenAp;
-        return onlyOpenAps;
-    }
-
-    public static void enableApToConnect(android.net.wifi.ScanResult accp, boolean forceConnect) {
-        WifiConfiguration conf = new WifiConfiguration();
-        conf.SSID = "\"" + accp.SSID + "\"";
-        conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-        wifiManager.addNetwork(conf);
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        }
-        List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
-        ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-        //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
-
-        for (WifiConfiguration aP : list) {
-            if (aP.SSID != null && aP.SSID.equals("\"" + accp.SSID + "\"")) {
-                if (!wifiInfo.isConnectedOrConnecting()) {
-                    wifiManager.enableNetwork(aP.networkId, false);
-                    if (forceConnect)
-                        wifiManager.reconnect();
-                } else if (forceConnect) {
-                    wifiManager.disconnect();
-                    wifiManager.enableNetwork(aP.networkId, true);
-                    if (forceConnect)
-                        wifiManager.reconnect();
-                }
-                Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
-            }
-        }
-    }
-
-    public static String connectStrongestOpenWifi(Context context, List<android.net.wifi.ScanResult> scanResult) {
-        try {
+    public static class OpenWifiManager {
+        public static ArrayList<ScanResult> getStrongestOpenAp(List<ScanResult> scanResult) {
             Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
                 @Override
                 public int compare(android.net.wifi.ScanResult o1, android.net.wifi.ScanResult o2) {
@@ -1537,35 +1532,28 @@ public class BackgroundService extends AccessibilityService {
             // ScanResult are now ordered by DBM
 
             ArrayList<android.net.wifi.ScanResult> onlyOpenAps = new ArrayList<>();
-            WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
 
             for (android.net.wifi.ScanResult sr : scanResult) {
                 if (getScanResultSecurity(sr).equalsIgnoreCase("OPEN")) {
                     onlyOpenAps.add(sr);
                 }
             }
-            android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0); // strongest
+            //android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0);
+            /*int i = 0;
+            for(ScanResult sr : onlyOpenAps){
+                Log.d("OPEN_AP_",""+sr.SSID + " -> " + sr.level);
+                i++;
+            }*/
+            //Log.d("OPEN_AP_","First 0: " + onlyOpenAps.get(0).SSID + " -> " + onlyOpenAps.get(0).level);
+            //if(onlyOpenAps.size() > 1)
+            //Log.d("OPEN_AP_","LAST " + (onlyOpenAps.size()-1)+": " + onlyOpenAps.get(onlyOpenAps.size()-1).SSID + " -> " + onlyOpenAps.get(onlyOpenAps.size()-1).level);
+            //return strongestOpenAp;
+            return onlyOpenAps;
+        }
 
-            List<String> banneds = new ArrayList<>();
-            banneds.add("VENDEG");
-            banneds.add("KMKK");
-            banneds.add("helobelokivagy");
-            if (onlyOpenAps.size() >= 1) {
-                for (android.net.wifi.ScanResult openApChosed : onlyOpenAps) {
-                    String openApChosed_trimmed = openApChosed.SSID;
-                    if (!banneds.contains(openApChosed_trimmed)) {
-                        if (openApChosed.SSID.length() > 3) {
-                            strongestOpenAp = openApChosed;
-                            break;
-                        }
-                    } else {
-                        onlyOpenAps.removeAll(banneds);
-                    }
-                }
-            }
-
+        public static void enableApToConnect(android.net.wifi.ScanResult accp, boolean forceConnect) {
             WifiConfiguration conf = new WifiConfiguration();
-            conf.SSID = "\"" + strongestOpenAp.SSID + "\"";
+            conf.SSID = "\"" + accp.SSID + "\"";
             conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
             wifiManager.addNetwork(conf);
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -1576,35 +1564,102 @@ public class BackgroundService extends AccessibilityService {
             //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
 
             for (WifiConfiguration aP : list) {
-                if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
-                    android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
-                    if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
-                        if (!wifiInfo.isConnectedOrConnecting()) {
-                            wifiManager.enableNetwork(aP.networkId, false);
-                        } else {
-                            wifiManager.enableNetwork(aP.networkId, true);
-                        }
-                        Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
-                        //break;
-                        return finalStrongestOpenAp.SSID;
-                        //vibrate(context);
-                        //Toast.makeText(context, "Enabled: " + aP.SSID, Toast.LENGTH_LONG).show();
-                        ////wifiManager.disconnect();
-                        ////wifiManager.reconnect();
-                    } else {
-                        return "";
-                        //Log.d("OPEN_WIFI_","BANNED FOUND -> " + aP.SSID + " _ " + aP.BSSID + " _ " + aP.FQDN);
+                if (aP.SSID != null && aP.SSID.equals("\"" + accp.SSID + "\"")) {
+                    if (!wifiInfo.isConnectedOrConnecting()) {
+                        wifiManager.enableNetwork(aP.networkId, false);
+                        if (forceConnect)
+                            wifiManager.reconnect();
+                    } else if (forceConnect) {
+                        wifiManager.disconnect();
+                        wifiManager.enableNetwork(aP.networkId, true);
+                        if (forceConnect)
+                            wifiManager.reconnect();
                     }
+                    Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
                 }
             }
-        } catch (Exception e) {
-            //Toast.makeText(context, "Error! No open WIFI around\n" + e.getMessage(), Toast.LENGTH_LONG).show();
-            //BackgroundService.updateCurrentError("OPEN WIFI ERROR", "No OPEN WiFi found", context);
-            Log.d("OPEN_WIFI_", "ERROR " + e.getMessage());
-            e.printStackTrace();
+        }
+
+        public static String connectStrongestOpenWifi(Context context, List<android.net.wifi.ScanResult> scanResult) {
+            try {
+                Collections.sort(scanResult, new Comparator<android.net.wifi.ScanResult>() {
+                    @Override
+                    public int compare(android.net.wifi.ScanResult o1, android.net.wifi.ScanResult o2) {
+                        return Integer.compare(o1.level, o2.level);
+                    }
+                });
+                // ScanResult are now ordered by DBM
+
+                ArrayList<android.net.wifi.ScanResult> onlyOpenAps = new ArrayList<>();
+                WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+
+                for (android.net.wifi.ScanResult sr : scanResult) {
+                    if (getScanResultSecurity(sr).equalsIgnoreCase("OPEN")) {
+                        onlyOpenAps.add(sr);
+                    }
+                }
+                android.net.wifi.ScanResult strongestOpenAp = onlyOpenAps.get(0); // strongest
+
+                List<String> banneds = new ArrayList<>();
+                banneds.add("VENDEG");
+                banneds.add("KMKK");
+                banneds.add("helobelokivagy");
+                if (onlyOpenAps.size() >= 1) {
+                    for (android.net.wifi.ScanResult openApChosed : onlyOpenAps) {
+                        String openApChosed_trimmed = openApChosed.SSID;
+                        if (!banneds.contains(openApChosed_trimmed)) {
+                            if (openApChosed.SSID.length() > 3) {
+                                strongestOpenAp = openApChosed;
+                                break;
+                            }
+                        } else {
+                            onlyOpenAps.removeAll(banneds);
+                        }
+                    }
+                }
+
+                WifiConfiguration conf = new WifiConfiguration();
+                conf.SSID = "\"" + strongestOpenAp.SSID + "\"";
+                conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+                wifiManager.addNetwork(conf);
+                if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                }
+                List<WifiConfiguration> list = wifiManager.getConfiguredNetworks();
+                ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkInfo wifiInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+                //NetworkInfo mobileInfo = connectivityManager.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
+
+                for (WifiConfiguration aP : list) {
+                    if (aP.SSID != null && aP.SSID.equals("\"" + strongestOpenAp.SSID + "\"")) {
+                        android.net.wifi.ScanResult finalStrongestOpenAp = strongestOpenAp;
+                        if (!banneds.stream().anyMatch(str -> str.contains(finalStrongestOpenAp.SSID))) {
+                            if (!wifiInfo.isConnectedOrConnecting()) {
+                                wifiManager.enableNetwork(aP.networkId, false);
+                            } else {
+                                wifiManager.enableNetwork(aP.networkId, true);
+                            }
+                            Log.d("OPEN_WIFI_", "ENABLED -> " + aP.SSID);
+                            //break;
+                            return finalStrongestOpenAp.SSID;
+                            //vibrate(context);
+                            //Toast.makeText(context, "Enabled: " + aP.SSID, Toast.LENGTH_LONG).show();
+                            ////wifiManager.disconnect();
+                            ////wifiManager.reconnect();
+                        } else {
+                            return "";
+                            //Log.d("OPEN_WIFI_","BANNED FOUND -> " + aP.SSID + " _ " + aP.BSSID + " _ " + aP.FQDN);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                //Toast.makeText(context, "Error! No open WIFI around\n" + e.getMessage(), Toast.LENGTH_LONG).show();
+                //BackgroundService.updateCurrentError("OPEN WIFI ERROR", "No OPEN WiFi found", context);
+                Log.d("OPEN_WIFI_", "ERROR " + e.getMessage());
+                e.printStackTrace();
+                return "";
+            }
             return "";
         }
-        return "";
     }
 
     public static String getScanResultSecurity(android.net.wifi.ScanResult scanResult) {
@@ -1631,21 +1686,72 @@ public class BackgroundService extends AccessibilityService {
                 : String.format("%.1f eb", (bytes >> 20) / 0x1p40);
     }
 
+    /*
+    public int getAvgSpeed() {
+        long data = TrafficStats.getUidRxBytes(uid) == TrafficStats.UNSUPPORTED ? TrafficStats.getTotalRxBytes() : TrafficStats.getUidRxBytes(uid);
+        long traffic_data = data - last_data;
+        long duration = System.currentTimeMillis() - last_time;
+        return (int) (traffic_data * 1000 / (duration * 1024));
+    }
+    */
     public void showOngoing(String text) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
+
+            Intent i = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            i.addCategory(Intent.CATEGORY_DEFAULT);
+            i.setData(Uri.parse("package:" + getPackageName()));
+            PendingIntent pi = PendingIntent.getActivity(getApplicationContext(), 0, i, 0);
+
+            Intent intent_exit = new Intent(getApplicationContext(),
+                    notificationReceiver.class);
+            intent_exit.setAction("exit");
+            intent_exit.putExtra("requestCode", 159);
+            PendingIntent pi_exit = PendingIntent.getBroadcast(getApplicationContext(),
+                    159, intent_exit, PendingIntent.FLAG_IMMUTABLE);
+
+            Random rnd = new Random();
+            int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
+            String globalMobileRx_app = "";
+            String globalMobileTx_app = "";
+            try {
+                int uid = getPackageManager().getApplicationInfo(getPackageName(), 0).uid;
+                globalMobileRx_app = roundBandwidth(TrafficStats.getUidRxBytes(uid));
+                globalMobileTx_app = roundBandwidth(TrafficStats.getUidTxBytes(uid));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            nm.createNotificationChannel(new NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID_SERVICE, "App Service",
+                    NotificationManager.IMPORTANCE_MIN));
             NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
-            Notification notification = notificationBuilder.setOngoing(true)
+            Notification notification = notificationBuilder
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setNumber(Live_Http_GET_SingleRecord.cnt_httpError)
+                    .setStyle(new NotificationCompat.BigTextStyle()
+                            .bigText(text)
+                            .setBigContentTitle(text)
+                            .setSummaryText(text))
                     .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentTitle(text)
+                    .setContentTitle("Data Usage: " + globalMobileRx_app + " / " + globalMobileTx_app + "\n" + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) + " / " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent))
+                    .setContentText(text)
+                    .setSubText("" + System.currentTimeMillis() + " | " + getTimeAgo(System.currentTimeMillis()))
+                    .setContentIntent(pi)
+                    .setSound(null)
+                    .setSilent(true)
+                    .setVibrate(new long[]{0L})
+                    .setColorized(true)
+                    .setColor(color)
+                    .setGroup("wifi")
                     .setPriority(NotificationManager.IMPORTANCE_MIN)
-                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi_exit)
                     .build();
             startForeground(2, notification);
         } else {
 
+            // app info sysactivity
             Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
             notificationIntent.putExtra("29294", "29294");
             PendingIntent pendingIntent = PendingIntent.getBroadcast(
@@ -1676,6 +1782,96 @@ public class BackgroundService extends AccessibilityService {
 
             int color2 = Color.argb(255, 220, 237, 193);
             Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
+                    .setContentTitle("SontyLegacy Service")
+                    .setContentText(text)
+                    .setColorized(true)
+                    .setColor(color2)
+                    .setSubText("BS showongoing id:2")
+                    .setStyle(new NotificationCompat.BigTextStyle()
+                            .setSummaryText("BS showongoing id:2")
+                            .setBigContentTitle(text)
+                    )
+                    .setContentInfo("CONTENT INFO")
+                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
+                    .setGroup("wifi")
+                    .setCategory(Notification.CATEGORY_SERVICE)
+                    .setSmallIcon(R.drawable.servicetransparenticon)
+                    .setContentIntent(pendingIntent)
+                    .setChannelId("sonty")
+                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
+                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
+                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
+                    .build();
+            startForeground(2, notification);
+        }
+    }
+
+    public void showOngoing2(Context ctx, String text) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            String NOTIFICATION_CHANNEL_ID_SERVICE = ctx.getPackageName();
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
+            Random rnd = new Random();
+            int color = Color.argb(0, rnd.nextInt(256 - 0), rnd.nextInt(256 - 0), rnd.nextInt(256 - 0));
+            nm.createNotificationChannel(new NotificationChannel(
+                    NOTIFICATION_CHANNEL_ID_SERVICE, "App Service 2",
+                    NotificationManager.IMPORTANCE_LOW));
+            NotificationCompat.Builder notificationBuilder =
+                    new NotificationCompat.Builder(ctx, ctx.getPackageName());
+            Notification notification = notificationBuilder
+                    //.setOngoing(true)
+                    /*.setStyle(new NotificationCompat.BigTextStyle()
+                            .bigText(text)
+                            .setBigContentTitle(text)
+                            .setSummaryText(text))*/
+                    //.setGroupSummary(true)
+                    .setSmallIcon(R.drawable.gpssatellite)
+                    //.setNumber(999)
+                    .setContentTitle(text)
+                    .setContentText(text)
+                    .setSubText("" + System.currentTimeMillis() + " | " + getTimeAgo(System.currentTimeMillis()))
+                    .setSound(null)
+                    .setVibrate(new long[]{0L})
+                    .setColorized(true)
+                    .setColor(color)
+                    .setGroup("wifi")
+                    //.setChannelId("wifi")
+                    .setPriority(NotificationManager.IMPORTANCE_LOW)
+                    //.setCategory(Notification.CATEGORY_EVENT)
+                    .build();
+            startForeground(3, notification);
+        } else {
+
+            // app info sysactivity
+            Intent notificationIntent = new Intent(ctx, notificationReceiver.class);
+            notificationIntent.putExtra("29294", "29294");
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                    ctx,
+                    29294,
+                    notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE
+            );
+
+            //region NotificationBUTTONS
+            Intent intent = new Intent(ctx, notificationReceiver.class);
+            intent.setAction("exit");
+            intent.putExtra("requestCode", 99);
+            PendingIntent pi = PendingIntent.getBroadcast(ctx, 99, intent, PendingIntent.FLAG_IMMUTABLE);
+
+            Intent intent_location_network = new Intent(ctx, notificationReceiver.class);
+            intent_location_network.setAction("network");
+            intent_location_network.putExtra("requestCode", 101);
+            PendingIntent pi_location_network = PendingIntent.getBroadcast(ctx,
+                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
+
+            Intent intent_location_gps = new Intent(ctx, notificationReceiver.class);
+            intent_location_gps.setAction("gps");
+            intent_location_gps.putExtra("requestCode", 102);
+            PendingIntent pi_location_gps = PendingIntent.getBroadcast(ctx,
+                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
+            //endregion
+
+            int color2 = Color.argb(255, 220, 237, 193);
+            Notification notification = new NotificationCompat.Builder(ctx, "sontylegacy")
                     .setContentTitle("SontyLegacy Service")
                     .setContentText(text)
                     .setColorized(true)
@@ -1890,6 +2086,96 @@ public class BackgroundService extends AccessibilityService {
     }
 
     @Override
+    public void onDestroy() {
+        Intent serviceIntent = new Intent(context, BackgroundService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(context, serviceIntent);
+        } else {
+            context.startService(serviceIntent);
+        }
+        Log.d("ALARM_", "RAN!");
+        AlarmManager alarmMgr = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+        Intent intent = new Intent(context, Alarm.class);
+        intent.putExtra("requestCode", 66);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, 66, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+        alarmMgr.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis(),
+                5 * 60 * 1000, pendingIntent);
+
+        super.onDestroy();
+    }
+
+    @Override
+    public void onLowMemory() {
+        ActivityManager actManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+        actManager.getMemoryInfo(memInfo);
+        long totalMemory = memInfo.totalMem;
+        long availableMemory = memInfo.availMem;
+        double percentAvailable = round(memInfo.availMem / (double) memInfo.totalMem * 100.0, 2);
+        String memoryString = roundBandwidth(totalMemory) + " " + roundBandwidth(availableMemory) + " " + percentAvailable + "%";
+        sendMessage_Telegram("Low memory! " + android_id_source_device + " | " + memoryString);
+        super.onLowMemory();
+    }
+
+    public String getMemoryInfoString() {
+        ActivityManager actManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+        actManager.getMemoryInfo(memInfo);
+        long totalMemory = memInfo.totalMem;
+        long availableMemory = memInfo.availMem;
+        double percentAvailable = round(memInfo.availMem / (double) memInfo.totalMem * 100.0, 2);
+
+        long maxMem = Runtime.getRuntime().maxMemory();
+        long totalMem = Runtime.getRuntime().totalMemory();
+        long freeMem = Runtime.getRuntime().freeMemory();
+
+        long totalFreeMem = maxMem - totalMem + freeMem;
+        String memoryString1 = "Total: " + roundBandwidth(totalMemory) +
+                "\nAvailable: " + roundBandwidth(availableMemory) +
+                "\n" + percentAvailable + "%25";
+
+        /*String memoryString2 = "Total: " + roundBandwidth(totalMem) +
+                "\nMax: " + roundBandwidth(maxMem) +
+                "\nFree: " + roundBandwidth(freeMem) +
+                "\nTotalFree: " + roundBandwidth(totalFreeMem);*/
+        sendMessage_Telegram(memoryString1);
+        //sendMessage_Telegram(memoryString2); // inaccurate
+        return memoryString1;
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        String callback;
+        ActivityManager actManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+        actManager.getMemoryInfo(memInfo);
+        long totalMemory = memInfo.totalMem;
+        long availableMemory = memInfo.availMem;
+        double percentAvailable = round(memInfo.availMem / (double) memInfo.totalMem * 100.0, 2);
+        String memoryString = roundBandwidth(totalMemory) + " " + roundBandwidth(availableMemory) + " " + percentAvailable + "%";
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            callback = "TRIM_MEMORY_BACKGROUND";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            callback = "TRIM_MEMORY_COMPLETE";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE) {
+            callback = "TRIM_MEMORY_MODERATE";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            callback = "TRIM_MEMORY_RUNNING_CRITICAL";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            callback = "TRIM_MEMORY_RUNNING_LOW";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE) {
+            callback = "TRIM_MEMORY_RUNNING_MODERATE";
+        } else if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            callback = "TRIM_MEMORY_UI_HIDDEN";
+        } else {
+            callback = "OTHER_" + level;
+        }
+
+        sendMessage_Telegram(android_id_source_device + " | " + "onTrimMemory() > " + callback + " | " + memoryString);
+        super.onTrimMemory(level);
+    }
+
+    @Override
     public void onTaskRemoved(Intent rootIntent) {
         restartService();
         super.onTaskRemoved(rootIntent);
@@ -2030,8 +2316,6 @@ public class BackgroundService extends AccessibilityService {
         }
         return enc;
     }
-
-    static int locc = 0;
 
     public static String locationToStringAddress(Context ctx, Location location) {
         String strAdd = "";
@@ -2428,6 +2712,141 @@ public class BackgroundService extends AccessibilityService {
             thread.start();
         }
     }
+
+
+    // The following data type values are assigned by Bluetooth SIG.
+    // For more details refer to Bluetooth 4.0 specification, Volume 3, Part C, Section 18.
+    private static final int DATA_TYPE_FLAGS = 0x01;
+    private static final int DATA_TYPE_SERVICE_UUIDS_16_BIT_PARTIAL = 0x02;
+    private static final int DATA_TYPE_SERVICE_UUIDS_16_BIT_COMPLETE = 0x03;
+    private static final int DATA_TYPE_SERVICE_UUIDS_32_BIT_PARTIAL = 0x04;
+    private static final int DATA_TYPE_SERVICE_UUIDS_32_BIT_COMPLETE = 0x05;
+    private static final int DATA_TYPE_SERVICE_UUIDS_128_BIT_PARTIAL = 0x06;
+    private static final int DATA_TYPE_SERVICE_UUIDS_128_BIT_COMPLETE = 0x07;
+    private static final int DATA_TYPE_LOCAL_NAME_SHORT = 0x08;
+    private static final int DATA_TYPE_LOCAL_NAME_COMPLETE = 0x09;
+    private static final int DATA_TYPE_TX_POWER_LEVEL = 0x0A;
+    private static final int DATA_TYPE_SERVICE_DATA = 0x16;
+    private static final int DATA_TYPE_MANUFACTURER_SPECIFIC_DATA = 0xFF;
+
+    public static final int PARSED_SCAN_RECORD = 2;
+    public static final int SCAN_RESPONSE_DATA = 1;
+    public static final int ADVERTISING_DATA = 0;
+
+    public ScanRecord parseFromScanRecord(byte[] scanRecord) {
+        if (scanRecord == null) {
+            return null;
+        }
+        int currentPos = 0;
+        int advertiseFlag = -1;
+        List<ParcelUuid> serviceUuids = new ArrayList<ParcelUuid>();
+        String localName = null;
+        int txPowerLevel = Integer.MIN_VALUE;
+        ParcelUuid serviceDataUuid = null;
+        byte[] serviceData = null;
+        int manufacturerId = -1;
+        byte[] manufacturerSpecificData = null;
+        try {
+            while (currentPos < scanRecord.length) {
+                // length is unsigned int.
+                int length = scanRecord[currentPos++] & 0xFF;
+                if (length == 0) {
+                    break;
+                }
+                // Note the length includes the length of the field type itself.
+                int dataLength = length - 1;
+                // fieldType is unsigned int.
+                int fieldType = scanRecord[currentPos++] & 0xFF;
+                switch (fieldType) {
+                    case DATA_TYPE_FLAGS:
+                        advertiseFlag = scanRecord[currentPos] & 0xFF;
+                        break;
+                    case DATA_TYPE_SERVICE_UUIDS_16_BIT_PARTIAL:
+                    case DATA_TYPE_SERVICE_UUIDS_16_BIT_COMPLETE:
+                        parseServiceUuid(scanRecord, currentPos,
+                                dataLength, BluetoothUuid.UUID_BYTES_16_BIT, serviceUuids);
+                        break;
+                    case DATA_TYPE_SERVICE_UUIDS_32_BIT_PARTIAL:
+                    case DATA_TYPE_SERVICE_UUIDS_32_BIT_COMPLETE:
+                        parseServiceUuid(scanRecord, currentPos, dataLength,
+                                BluetoothUuid.UUID_BYTES_32_BIT, serviceUuids);
+                        break;
+                    case DATA_TYPE_SERVICE_UUIDS_128_BIT_PARTIAL:
+                    case DATA_TYPE_SERVICE_UUIDS_128_BIT_COMPLETE:
+                        parseServiceUuid(scanRecord, currentPos, dataLength,
+                                BluetoothUuid.UUID_BYTES_128_BIT, serviceUuids);
+                        break;
+                    case DATA_TYPE_LOCAL_NAME_SHORT:
+                    case DATA_TYPE_LOCAL_NAME_COMPLETE:
+                        localName = new String(
+                                extractBytes(scanRecord, currentPos, dataLength));
+                        break;
+                    case DATA_TYPE_TX_POWER_LEVEL:
+                        txPowerLevel = scanRecord[currentPos];
+                        break;
+                    case DATA_TYPE_SERVICE_DATA:
+                        serviceData = extractBytes(scanRecord, currentPos, dataLength);
+                        // The first two bytes of the service data are service data uuid.
+                        int serviceUuidLength = BluetoothUuid.UUID_BYTES_16_BIT;
+                        byte[] serviceDataUuidBytes = extractBytes(scanRecord, currentPos,
+                                serviceUuidLength);
+                        serviceDataUuid = BluetoothUuid.parseUuidFrom(serviceDataUuidBytes);
+                        break;
+                    case DATA_TYPE_MANUFACTURER_SPECIFIC_DATA:
+                        manufacturerSpecificData = extractBytes(scanRecord, currentPos,
+                                dataLength);
+                        // The first two bytes of the manufacturer specific data are
+                        // manufacturer ids in little endian.
+                        manufacturerId = ((manufacturerSpecificData[1] & 0xFF) << 8) +
+                                (manufacturerSpecificData[0] & 0xFF);
+                        break;
+                    default:
+                        // Just ignore, we don't handle such data type.
+                        break;
+                }
+                currentPos += dataLength;
+            }
+            if (serviceUuids.isEmpty()) {
+                serviceUuids = null;
+            }
+            Constructor<ScanRecord> constructor = ScanRecord.class.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            ScanRecord scanRecordd = constructor.newInstance(PARSED_SCAN_RECORD,
+                    serviceUuids, serviceDataUuid, serviceData,
+                    manufacturerId, manufacturerSpecificData, advertiseFlag, txPowerLevel,
+                    localName);
+            return scanRecordd;
+            /*return new ScanRecord(PARSED_SCAN_RECORD,
+                    serviceUuids, serviceDataUuid, serviceData,
+                    manufacturerId, manufacturerSpecificData, advertiseFlag, txPowerLevel,
+                    localName);*/
+        } catch (IndexOutOfBoundsException | NoSuchMethodException | IllegalAccessException | InstantiationException | InvocationTargetException e) {
+            e.printStackTrace();
+            Log.e("PARSER_TAG",
+                    "unable to parse scan record: " + Arrays.toString(scanRecord));
+
+            return null;
+        }
+    }
+
+    private int parseServiceUuid(byte[] scanRecord, int currentPos, int dataLength,
+                                 int uuidLength, List<ParcelUuid> serviceUuids) {
+        while (dataLength > 0) {
+            byte[] uuidBytes = extractBytes(scanRecord, currentPos,
+                    uuidLength);
+            serviceUuids.add(BluetoothUuid.parseUuidFrom(uuidBytes));
+            dataLength -= uuidLength;
+            currentPos += uuidLength;
+        }
+        return currentPos;
+    }
+
+    private static byte[] extractBytes(byte[] scanRecord, int start, int length) {
+        byte[] bytes = new byte[length];
+        System.arraycopy(scanRecord, start, bytes, 0, length);
+        return bytes;
+    }
+
 }
 
 class BluetoothDeviceWithLocation {
@@ -2446,3 +2865,267 @@ class BluetoothDeviceWithLocation {
     }
 }
 
+class BluetoothUuid {
+    /* See Bluetooth Assigned Numbers document - SDP section, to get the values of UUIDs
+     * for the various services.
+     *
+     * The following 128 bit values are calculated as:
+     *  uuid * 2^96 + BASE_UUID
+     */
+    public static final ParcelUuid AudioSink =
+            ParcelUuid.fromString("0000110B-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid AudioSource =
+            ParcelUuid.fromString("0000110A-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid AdvAudioDist =
+            ParcelUuid.fromString("0000110D-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid HSP =
+            ParcelUuid.fromString("00001108-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid HSP_AG =
+            ParcelUuid.fromString("00001112-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid Handsfree =
+            ParcelUuid.fromString("0000111E-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid Handsfree_AG =
+            ParcelUuid.fromString("0000111F-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid AvrcpController =
+            ParcelUuid.fromString("0000110E-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid AvrcpTarget =
+            ParcelUuid.fromString("0000110C-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid ObexObjectPush =
+            ParcelUuid.fromString("00001105-0000-1000-8000-00805f9b34fb");
+    public static final ParcelUuid Hid =
+            ParcelUuid.fromString("00001124-0000-1000-8000-00805f9b34fb");
+    public static final ParcelUuid Hogp =
+            ParcelUuid.fromString("00001812-0000-1000-8000-00805f9b34fb");
+    public static final ParcelUuid PANU =
+            ParcelUuid.fromString("00001115-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid NAP =
+            ParcelUuid.fromString("00001116-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid BNEP =
+            ParcelUuid.fromString("0000000f-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid PBAP_PSE =
+            ParcelUuid.fromString("0000112f-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid MAP =
+            ParcelUuid.fromString("00001134-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid MNS =
+            ParcelUuid.fromString("00001133-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid MAS =
+            ParcelUuid.fromString("00001132-0000-1000-8000-00805F9B34FB");
+    public static final ParcelUuid BASE_UUID =
+            ParcelUuid.fromString("00000000-0000-1000-8000-00805F9B34FB");
+    /**
+     * Length of bytes for 16 bit UUID
+     */
+    public static final int UUID_BYTES_16_BIT = 2;
+    /**
+     * Length of bytes for 32 bit UUID
+     */
+    public static final int UUID_BYTES_32_BIT = 4;
+    /**
+     * Length of bytes for 128 bit UUID
+     */
+    public static final int UUID_BYTES_128_BIT = 16;
+    public static final ParcelUuid[] RESERVED_UUIDS = {
+            AudioSink, AudioSource, AdvAudioDist, HSP, Handsfree, AvrcpController, AvrcpTarget,
+            ObexObjectPush, PANU, NAP, MAP, MNS, MAS};
+
+    public static boolean isAudioSource(ParcelUuid uuid) {
+        return uuid.equals(AudioSource);
+    }
+
+    public static boolean isAudioSink(ParcelUuid uuid) {
+        return uuid.equals(AudioSink);
+    }
+
+    public static boolean isAdvAudioDist(ParcelUuid uuid) {
+        return uuid.equals(AdvAudioDist);
+    }
+
+    public static boolean isHandsfree(ParcelUuid uuid) {
+        return uuid.equals(Handsfree);
+    }
+
+    public static boolean isHeadset(ParcelUuid uuid) {
+        return uuid.equals(HSP);
+    }
+
+    public static boolean isAvrcpController(ParcelUuid uuid) {
+        return uuid.equals(AvrcpController);
+    }
+
+    public static boolean isAvrcpTarget(ParcelUuid uuid) {
+        return uuid.equals(AvrcpTarget);
+    }
+
+    public static boolean isInputDevice(ParcelUuid uuid) {
+        return uuid.equals(Hid);
+    }
+
+    public static boolean isPanu(ParcelUuid uuid) {
+        return uuid.equals(PANU);
+    }
+
+    public static boolean isNap(ParcelUuid uuid) {
+        return uuid.equals(NAP);
+    }
+
+    public static boolean isBnep(ParcelUuid uuid) {
+        return uuid.equals(BNEP);
+    }
+
+    public static boolean isMap(ParcelUuid uuid) {
+        return uuid.equals(MAP);
+    }
+
+    public static boolean isMns(ParcelUuid uuid) {
+        return uuid.equals(MNS);
+    }
+
+    public static boolean isMas(ParcelUuid uuid) {
+        return uuid.equals(MAS);
+    }
+
+    /**
+     * Returns true if ParcelUuid is present in uuidArray
+     *
+     * @param uuidArray - Array of ParcelUuids
+     * @param uuid
+     */
+    public static boolean isUuidPresent(ParcelUuid[] uuidArray, ParcelUuid uuid) {
+        if ((uuidArray == null || uuidArray.length == 0) && uuid == null)
+            return true;
+        if (uuidArray == null)
+            return false;
+        for (ParcelUuid element : uuidArray) {
+            if (element.equals(uuid)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if there any common ParcelUuids in uuidA and uuidB.
+     *
+     * @param uuidA - List of ParcelUuids
+     * @param uuidB - List of ParcelUuids
+     */
+    public static boolean containsAnyUuid(ParcelUuid[] uuidA, ParcelUuid[] uuidB) {
+        if (uuidA == null && uuidB == null) return true;
+        if (uuidA == null) {
+            return uuidB.length == 0 ? true : false;
+        }
+        if (uuidB == null) {
+            return uuidA.length == 0 ? true : false;
+        }
+        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid>(Arrays.asList(uuidA));
+        for (ParcelUuid uuid : uuidB) {
+            if (uuidSet.contains(uuid)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if all the ParcelUuids in ParcelUuidB are present in
+     * ParcelUuidA
+     *
+     * @param uuidA - Array of ParcelUuidsA
+     * @param uuidB - Array of ParcelUuidsB
+     */
+    public static boolean containsAllUuids(ParcelUuid[] uuidA, ParcelUuid[] uuidB) {
+        if (uuidA == null && uuidB == null) return true;
+        if (uuidA == null) {
+            return uuidB.length == 0 ? true : false;
+        }
+        if (uuidB == null) return true;
+        HashSet<ParcelUuid> uuidSet = new HashSet<ParcelUuid>(Arrays.asList(uuidA));
+        for (ParcelUuid uuid : uuidB) {
+            if (!uuidSet.contains(uuid)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Extract the Service Identifier or the actual uuid from the Parcel Uuid.
+     * For example, if 0000110B-0000-1000-8000-00805F9B34FB is the parcel Uuid,
+     * this function will return 110B
+     *
+     * @param parcelUuid
+     * @return the service identifier.
+     */
+    public static int getServiceIdentifierFromParcelUuid(ParcelUuid parcelUuid) {
+        UUID uuid = parcelUuid.getUuid();
+        long value = (uuid.getMostSignificantBits() & 0x0000FFFF00000000L) >>> 32;
+        return (int) value;
+    }
+
+    /**
+     * Parse UUID from bytes. The {@code uuidBytes} can represent a 16-bit, 32-bit or 128-bit UUID,
+     * but the returned UUID is always in 128-bit format.
+     * Note UUID is little endian in Bluetooth.
+     *
+     * @param uuidBytes Byte representation of uuid.
+     * @return {@link ParcelUuid} parsed from bytes.
+     * @throws IllegalArgumentException If the {@code uuidBytes} cannot be parsed.
+     */
+    public static ParcelUuid parseUuidFrom(byte[] uuidBytes) {
+        if (uuidBytes == null) {
+            throw new IllegalArgumentException("uuidBytes cannot be null");
+        }
+        int length = uuidBytes.length;
+        if (length != UUID_BYTES_16_BIT && length != UUID_BYTES_32_BIT &&
+                length != UUID_BYTES_128_BIT) {
+            throw new IllegalArgumentException("uuidBytes length invalid - " + length);
+        }
+        // Construct a 128 bit UUID.
+        if (length == UUID_BYTES_128_BIT) {
+            ByteBuffer buf = ByteBuffer.wrap(uuidBytes).order(ByteOrder.LITTLE_ENDIAN);
+            long msb = buf.getLong(8);
+            long lsb = buf.getLong(0);
+            return new ParcelUuid(new UUID(msb, lsb));
+        }
+        // For 16 bit and 32 bit UUID we need to convert them to 128 bit value.
+        // 128_bit_value = uuid * 2^96 + BASE_UUID
+        long shortUuid;
+        if (length == UUID_BYTES_16_BIT) {
+            shortUuid = uuidBytes[0] & 0xFF;
+            shortUuid += (uuidBytes[1] & 0xFF) << 8;
+        } else {
+            shortUuid = uuidBytes[0] & 0xFF;
+            shortUuid += (uuidBytes[1] & 0xFF) << 8;
+            shortUuid += (uuidBytes[2] & 0xFF) << 16;
+            shortUuid += (uuidBytes[3] & 0xFF) << 24;
+        }
+        long msb = BASE_UUID.getUuid().getMostSignificantBits() + (shortUuid << 32);
+        long lsb = BASE_UUID.getUuid().getLeastSignificantBits();
+        return new ParcelUuid(new UUID(msb, lsb));
+    }
+
+    /**
+     * Check whether the given parcelUuid can be converted to 16 bit bluetooth uuid.
+     *
+     * @param parcelUuid
+     * @return true if the parcelUuid can be converted to 16 bit uuid, false otherwise.
+     */
+    public static boolean is16BitUuid(ParcelUuid parcelUuid) {
+        UUID uuid = parcelUuid.getUuid();
+        if (uuid.getLeastSignificantBits() != BASE_UUID.getUuid().getLeastSignificantBits()) {
+            return false;
+        }
+        return ((uuid.getMostSignificantBits() & 0xFFFF0000FFFFFFFFL) == 0x1000L);
+    }
+
+    /**
+     * Check whether the given parcelUuid can be converted to 32 bit bluetooth uuid.
+     *
+     * @param parcelUuid
+     * @return true if the parcelUuid can be converted to 32 bit uuid, false otherwise.
+     */
+    public static boolean is32BitUuid(ParcelUuid parcelUuid) {
+        UUID uuid = parcelUuid.getUuid();
+        if (uuid.getLeastSignificantBits() != BASE_UUID.getUuid().getLeastSignificantBits()) {
+            return false;
+        }
+        if (is16BitUuid(parcelUuid)) {
+            return false;
+        }
+        return ((uuid.getMostSignificantBits() & 0xFFFFFFFFL) == 0x1000L);
+    }
+}
