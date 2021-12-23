@@ -20,10 +20,14 @@ import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.net.Uri;
+import android.nfc.Tag;
+import android.nfc.tech.MifareClassic;
+import android.nfc.tech.MifareUltralight;
 import android.os.Build;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.androidnetworking.AndroidNetworking;
@@ -43,6 +47,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
@@ -53,6 +58,7 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -60,6 +66,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.InvalidParameterSpecException;
@@ -87,6 +94,167 @@ import javax.crypto.SecretKey;
 import javax.net.ssl.HttpsURLConnection;
 
 public class SontHelper {
+    public static class NFCHelper {
+        public static String detectTagData(Tag tag) {
+            StringBuilder sb = new StringBuilder();
+            byte[] id = tag.getId();
+            sb.append("ID (hex): ").append(toHex(id)).append('\n');
+            sb.append("ID (dec): ").append(toDec(id)).append('\n');
+
+            String prefix = "android.nfc.tech.";
+            sb.append("Technologies: ");
+            for (String tech : tag.getTechList()) {
+                sb.append(tech.substring(prefix.length()));
+                sb.append(", ");
+            }
+
+            sb.delete(sb.length() - 2, sb.length());
+
+            for (String tech : tag.getTechList()) {
+                if (tech.equals(MifareClassic.class.getName())) {
+                    sb.append('\n');
+                    String type = "Unknown";
+
+                    try {
+                        MifareClassic mifareTag = MifareClassic.get(tag);
+
+                        switch (mifareTag.getType()) {
+                            case MifareClassic.TYPE_CLASSIC:
+                                type = "Classic";
+                                break;
+                            case MifareClassic.TYPE_PLUS:
+                                type = "Plus";
+                                break;
+                            case MifareClassic.TYPE_PRO:
+                                type = "Pro";
+                                break;
+                        }
+                        sb.append("Mifare Classic type: ");
+                        sb.append(type);
+                        sb.append('\n');
+
+                        sb.append("Mifare size: ");
+                        sb.append(mifareTag.getSize() + " bytes");
+                        sb.append('\n');
+
+                        sb.append("Mifare sectors: ");
+                        sb.append(mifareTag.getSectorCount());
+                        sb.append('\n');
+
+                        sb.append("Mifare blocks: ");
+                        sb.append(mifareTag.getBlockCount());
+                    } catch (Exception e) {
+                        sb.append("Mifare classic error: " + e.getMessage());
+                    }
+                }
+
+                if (tech.equals(MifareUltralight.class.getName())) {
+                    sb.append('\n');
+                    MifareUltralight mifareUlTag = MifareUltralight.get(tag);
+                    String type = "Unknown";
+                    switch (mifareUlTag.getType()) {
+                        case MifareUltralight.TYPE_ULTRALIGHT:
+                            type = "Ultralight";
+                            break;
+                        case MifareUltralight.TYPE_ULTRALIGHT_C:
+                            type = "Ultralight C";
+                            break;
+                    }
+                    sb.append("Mifare Ultralight type: ");
+                    sb.append(type);
+                }
+            }
+            Log.v("test", sb.toString());
+            return sb.toString();
+        }
+
+        public static String toHex(byte[] bytes) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = bytes.length - 1; i >= 0; --i) {
+                int b = bytes[i] & 0xff;
+                if (b < 0x10)
+                    sb.append('0');
+                sb.append(Integer.toHexString(b));
+                if (i > 0) {
+                    sb.append(" ");
+                }
+            }
+            return sb.toString();
+        }
+
+        public static long toDec(byte[] bytes) {
+            long result = 0;
+            long factor = 1;
+            for (int i = 0; i < bytes.length; ++i) {
+                long value = bytes[i] & 0xffl;
+                result += value * factor;
+                factor *= 256l;
+            }
+            return result;
+        }
+    }
+
+    public static class MD5 {
+        private static final String TAG = "MD5";
+
+        public boolean checkMD5(String md5, File updateFile) {
+            if (TextUtils.isEmpty(md5) || updateFile == null) {
+                Log.e(TAG, "MD5 string empty or updateFile null");
+                return false;
+            }
+
+            String calculatedDigest = calculateMD5(updateFile);
+            if (calculatedDigest == null) {
+                Log.e(TAG, "calculatedDigest null");
+                return false;
+            }
+
+            Log.v(TAG, "Calculated digest: " + calculatedDigest);
+            Log.v(TAG, "Provided digest: " + md5);
+
+            return calculatedDigest.equalsIgnoreCase(md5);
+        }
+
+        public static String calculateMD5(File updateFile) {
+            MessageDigest digest;
+            try {
+                digest = MessageDigest.getInstance("MD5");
+            } catch (NoSuchAlgorithmException e) {
+                Log.e(TAG, "Exception while getting digest", e);
+                return null;
+            }
+
+            InputStream is;
+            try {
+                is = new FileInputStream(updateFile);
+            } catch (FileNotFoundException e) {
+                Log.e(TAG, "Exception while getting FileInputStream", e);
+                return null;
+            }
+
+            byte[] buffer = new byte[8192];
+            int read;
+            try {
+                while ((read = is.read(buffer)) > 0) {
+                    digest.update(buffer, 0, read);
+                }
+                byte[] md5sum = digest.digest();
+                BigInteger bigInt = new BigInteger(1, md5sum);
+                String output = bigInt.toString(16);
+                // Fill to 32 chars
+                output = String.format("%32s", output).replace(' ', '0');
+                return output;
+            } catch (IOException e) {
+                throw new RuntimeException("Unable to process file for MD5", e);
+            } finally {
+                try {
+                    is.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "Exception on closing MD5 input stream", e);
+                }
+            }
+        }
+    }
 
     public static class BluetoothUtils {
         public static class BleUtil {

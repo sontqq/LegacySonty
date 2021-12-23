@@ -4,7 +4,11 @@ import android.location.Location;
 
 public class ApWithLocation {
     public String getMac() {
-        return mac;
+        if (mac != null) {
+            return mac;
+        } else {
+            return "null";
+        }
     }
 
     public int getRssi() {
@@ -15,14 +19,26 @@ public class ApWithLocation {
         return location;
     }
 
-    public String mac;
-    public int rssi;
-    public Location location;
+    public String getSsid() {
+        return ssid;
+    }
 
-    public ApWithLocation(String mac, int rssi, Location location) {
+    public double getFrequency() {
+        return frequency;
+    }
+
+    private String ssid;
+    private double frequency;
+    private String mac;
+    private int rssi;
+    private Location location;
+
+    public ApWithLocation(String ssid, double frequency, String mac, int rssi, Location location) {
         this.mac = mac;
         this.rssi = rssi;
         this.location = location;
+        this.ssid = ssid;
+        this.frequency = frequency;
     }
 
     @Override
@@ -30,7 +46,6 @@ public class ApWithLocation {
         return "ApWithLocation{" +
                 "mac='" + mac + '\'' +
                 ", rssi=" + rssi +
-                ", location=" + location +
                 '}';
     }
 }

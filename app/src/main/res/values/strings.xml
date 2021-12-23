@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">LegacySonty</string>
     <string name="accessibility_service_description">Wardriving Accessibility Service to make sure the service is not being killed by the System.</string>
+
+    <string name="facebook_app_id">2348325075257429</string>
+    <string name="facebook_client_token">93db59ea46f4ef58872123a4aefd0a5a</string>
 </resources>

@@ -18,4 +18,9 @@
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowAnimationStyle">@android:style/Animation</item>
     </style>
+
+    <style name="generalnotitle" parent="android:Theme">
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
 </resources>

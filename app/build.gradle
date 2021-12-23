@@ -11,8 +11,8 @@ android {
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 30
         //targetSdkVersion 28
-        versionCode 4
-        versionName "3.0"
+        versionCode 5
+        versionName "5.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,7 +44,7 @@ dependencies {
 
     implementation("com.google.guava:guava:29.0-jre")
 
-    implementation 'com.google.android.gms:play-services-nearby:18.0.0'
+    implementation 'com.google.android.gms:play-services-nearby:18.0.1'
     implementation 'commons-io:commons-io:2.6'
     implementation 'org.apache.commons:commons-collections4:4.4'
 
@@ -66,4 +66,17 @@ dependencies {
 
     implementation 'org.ocpsoft.prettytime:prettytime:5.0.2.Final'
     implementation 'com.lemmingapex.trilateration:trilateration:1.0.2'
+
+    implementation 'pub.devrel:easypermissions:3.0.0'
+    implementation 'com.lemmingapex.trilateration:trilateration:1.0.2'
+
+    implementation 'com.google.android.gms:play-services-auth:19.2.0'
+    implementation 'com.facebook.android:facebook-android-sdk:latest.release'
+
+    implementation 'com.squareup.picasso:picasso:2.71828'
+
+    implementation 'org.jsoup:jsoup:1.14.3'
+
+    //implementation 'com.github.devnied.emvnfccard:library:3.0.1'
+
 }

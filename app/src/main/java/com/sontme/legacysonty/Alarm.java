@@ -5,19 +5,23 @@ import static android.content.Context.BATTERY_SERVICE;
 
 import static com.sontme.legacysonty.SontHelperSonty.invertColor;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.location.LocationManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.util.Log;
 import android.view.Window;
 import android.view.WindowManager;
 
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import java.util.Random;
@@ -33,6 +37,16 @@ public class Alarm extends BroadcastReceiver {
             context.startService(serviceIntent);
         }
         Log.d("ALARM_", "RAN!");
+
+        if (BackgroundService.android_id_source_device.equals("ANYA")) {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            BackgroundService.locationManager.requestSingleUpdate(
+                    LocationManager.NETWORK_PROVIDER,
+                    BackgroundService.locationListener, null);
+        }
+
         AlarmManager alarmMgr = (AlarmManager) context.getSystemService(ALARM_SERVICE);
         Intent intent = new Intent(context, Alarm.class);
         intent.putExtra("requestCode", 66);

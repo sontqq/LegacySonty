@@ -7,49 +7,72 @@
     android:orientation="vertical"
     tools:context=".MainActivity">
 
-    <SeekBar
-        android:id="@+id/seekBar"
+    <com.google.android.gms.common.SignInButton
+        android:id="@+id/sign_in_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:visibility="gone"></com.google.android.gms.common.SignInButton>
+
+    <TextView
+        android:id="@+id/fbtext"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:text="Please Sign In" />
+
+    <ImageView
+        android:id="@+id/fbprofilepic2"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
         android:layout_weight="0"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:progressDrawable="@drawable/seekbarstyle"
-        android:visibility="gone" />
+        android:foregroundGravity="center"
+        android:visibility="visible" />
 
     <LinearLayout
+        android:id="@+id/proflay"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_weight="0"
+        android:gravity="center"
         android:orientation="horizontal"
-        android:visibility="gone">
+        android:visibility="visible">
 
-        <TextView
-            android:id="@+id/seekval"
-            android:layout_width="match_parent"
+        <ImageView
+            android:id="@+id/fbprofilepic"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingLeft="20dp"
-            android:text="1"
-            android:textAlignment="viewStart" />
+            android:layout_gravity="center"
+            android:layout_weight="0"
+            android:foregroundGravity="center"
+            android:visibility="visible" />
 
-        <TextView
-            android:id="@+id/seekval2"
+        <com.facebook.login.widget.LoginButton
+            android:id="@+id/login_button"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_weight="0"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/fblogin"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Executor Pool Core Size: 1"
-            android:textAlignment="center"
+            android:background="#416BC1"
+            android:text="Connect With Facebook"
+            android:textColor="#ffffff"
             android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/seekval3"
+        <Button
+            android:id="@+id/fblogout"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:paddingRight="20dp"
-            android:text="20"
-            android:textAlignment="viewEnd" />
+            android:background="#416BC1"
+            android:text="FaceBook LogOut"
+            android:textColor="#ffffff"
+            android:textStyle="bold" />
 
     </LinearLayout>
 

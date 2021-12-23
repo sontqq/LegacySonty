@@ -28,8 +28,13 @@ import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.graphics.Color;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.biometrics.BiometricPrompt;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -49,14 +54,17 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.ParcelUuid;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.text.format.Formatter;
+import android.util.Base64;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -66,6 +74,7 @@ import com.androidnetworking.AndroidNetworking;
 import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
+import com.androidnetworking.interfaces.UploadProgressListener;
 import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
@@ -75,9 +84,11 @@ import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
-import com.samsung.sdk.sperf.CustomParams;
-import com.samsung.sdk.sperf.PerformanceManager;
-import com.samsung.sdk.sperf.SPerf;
+
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -98,6 +109,8 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -124,9 +137,11 @@ import java.util.concurrent.TimeUnit;
 
 import cz.msebera.android.httpclient.Header;
 import cz.msebera.android.httpclient.conn.util.InetAddressUtils;
+//import jcifs.netbios.NbtAddress;
 
 public class BackgroundService extends AccessibilityService {
     //region INITREGION
+    TimeElapsedUtil te = new TimeElapsedUtil();
     public static NearbyHandler nearby;
     public static String android_id;
     public static String android_id_source_device;
@@ -240,77 +255,63 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
+    public void triangulateScanResults(ScanResult sr) {
+        if ((sr.SSID.equals("UPCAEDB2C3") || sr.SSID.equals("5GHZUPCAEDB2C3")) && CURRENT_LOCATION != null) {
+            ApWithLocation apWithLocation;
+            try {
+                apWithLocation = aplist.get(sr.BSSID);
+                if (apWithLocation.getRssi() < sr.level) {
+                    apWithLocation = new ApWithLocation(sr.SSID, sr.frequency, sr.BSSID, sr.level, CURRENT_LOCATION);
+                    aplist.put(sr.BSSID, apWithLocation);
+                }
+            } catch (Exception e) {
+                apWithLocation = new ApWithLocation(sr.SSID, sr.frequency, sr.BSSID, sr.level, CURRENT_LOCATION);
+                aplist.put(sr.BSSID, apWithLocation);
+            }
+        }
+    }
+
+    public static double calculateDistance(double signalLevelInDb, double freqInMHz) {
+        double exp = (27.55 - (20 * Math.log10(freqInMHz)) + Math.abs(signalLevelInDb)) / 20.0;
+        return Math.pow(10.0, exp);
+    }
+
+    // wifiscan__
     BroadcastReceiver wifiReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             boolean newdata = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, false);
             List<ScanResult> scanresult = wifiManager.getScanResults();
-            if (newdata)
-                Log.d("wifiscan_test1", "newdata: " + newdata + " apswL_size: " + aplist.size());
-            for (ScanResult sr : scanresult) {
-                if (sr.SSID.equals("UPCAEDB2C3") && newdata) {
-                    if (CURRENT_LOCATION != null) {
-                        Log.d("wifiscan_test2", "" + sr.SSID + " | " + sr.BSSID + " | " + sr.level + " | " + CURRENT_LOCATION.getLatitude() + " | " + CURRENT_LOCATION.getLongitude());
-                        ApWithLocation apWithLocation;
-                        try {
-                            apWithLocation = aplist.get(sr.BSSID);
-                        } catch (Exception e) {
-                            apWithLocation = new ApWithLocation(sr.BSSID, sr.level, CURRENT_LOCATION);
-                            aplist.put(sr.BSSID, apWithLocation);
-                            e.printStackTrace();
-                        }
-
-                        aplist.put(sr.BSSID, apWithLocation);
-                        try {
-                            if (aplist.get(sr.BSSID).rssi < sr.level) {
-                                aplist.put(sr.BSSID, apWithLocation);
-                                Log.d("wifiscan_test2_added", "added: " + sr.BSSID + " | " + sr.level);
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-
-                    }
+            if (newdata) {
+                for (ScanResult sr : scanresult) {
+                    triangulateScanResults(sr);
                 }
-                if (aplist.containsKey(sr.BSSID)) {
-//                    sendMessage_Telegram("benne van! " + sr.BSSID + " " + aplist.get(sr.BSSID).toString());
-                }
-            }
-            for (Map.Entry<String, ApWithLocation> entry : aplist.entrySet()) {
-                /*String key = entry.getKey();
-                ApWithLocation value = entry.getValue();
-                if (value != null) {
-                    sendMessage_Telegram("key: " + key);
-                    sendMessage_Telegram("val: " + value.toString());
-                } else {
-                    //sendMessage_Telegram("value is null :( " + System.currentTimeMillis());
-                }*/
-                /*try {
-                    ApWithLocation ap = value;
-                    if(ap != null) {
-                        sendMessage_Telegram("AP: " + ap.getMac() + " | " + ap.getRssi() + " | " + ap.getLocation().getLatitude() + " " + ap.getLocation().getLongitude());
-                    }else{
-                        sendMessage_Telegram("Ap is null! " + aplist.size());
-                    }
-                }catch (Exception e){
-                    e.printStackTrace();
-                }*/
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     if (!wifiManager.isScanThrottleEnabled()) {
                         if (android_id_source_device.equals("ANYA") == false) {
-                            boolean succ = wifiManager.startScan();
-                            if (succ == true) {
-                                lastokscan = System.currentTimeMillis();
+                            if ((System.currentTimeMillis() - lastokscan) > 2000L) {
+                                boolean succ = wifiManager.startScan();
+                                Log.d("wifiscan_time", "ran: " + (System.currentTimeMillis() - lastokscan));
+                                if (succ == true) {
+                                    lastokscan = System.currentTimeMillis();
+                                }
                             }
                         }
                     }
                 } else {
                     if (android_id_source_device.equals("ANYA") == false) {
-                        boolean succ = wifiManager.startScan();
-                        if (succ == true) {
-                            lastokscan = System.currentTimeMillis();
+                        if ((System.currentTimeMillis() - lastokscan) > 2000L) {
+                            long a1 = System.currentTimeMillis();
+                            boolean succ = wifiManager.startScan();
+                            long a2 = System.currentTimeMillis();
+                            Log.d("wifiscan_time", "ran_2: "
+                                    + (System.currentTimeMillis() - lastokscan) + " " + succ + " " +
+                                    (a2 - a1));
+                            if (succ == true) {
+                                lastokscan = System.currentTimeMillis();
+                            }
                         }
                     }
                 }
@@ -433,9 +434,10 @@ public class BackgroundService extends AccessibilityService {
             int mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS,
                     android.os.Process.myUid(), getPackageName());
             if (mode != AppOpsManager.MODE_ALLOWED) {
-                Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent);
+                // SHOW USAGE STATS
+                //Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+                //intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                //startActivity(intent);
             }
         }
     }
@@ -449,6 +451,26 @@ public class BackgroundService extends AccessibilityService {
     @Override
     public void onCreate() {
         super.onCreate();
+        //StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        //StrictMode.setThreadPolicy(policy);
+
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(
+                    getPackageName(),
+                    PackageManager.GET_SIGNATURES);
+            for (Signature signature : info.signatures) {
+                MessageDigest md = MessageDigest.getInstance("SHA");
+                md.update(signature.toByteArray());
+                Log.d("KeyHash_", "KeyHash:" + Base64.encodeToString(md.digest(),
+                        Base64.DEFAULT));
+
+            }
+        } catch (PackageManager.NameNotFoundException e) {
+
+        } catch (NoSuchAlgorithmException e) {
+
+        }
+
         bluetooth_types = new ArrayList<>();
         aplist = new HashMap<>();
         randomString = new SontHelperSonty.RandomString();
@@ -468,6 +490,9 @@ public class BackgroundService extends AccessibilityService {
                 sendMessage_Telegram("Unhandled Exception! " + android_id_source_device);
                 sendMessage_Telegram("Unhandled Exception! " + e.getMessage());
                 sendMessage_Telegram("Unhandled Exception! " + st);
+                sendMessage_Telegram("Unhandled Exception! " + thread.getClass().getName() + " >>>>>> " +
+                        e.getMessage() +
+                        " > Error in " + Arrays.toString(e.getCause().getStackTrace()));
             }
         });
         startedAtTime = new TimeElapsedUtil();
@@ -540,15 +565,36 @@ public class BackgroundService extends AccessibilityService {
             } else if (Build.MANUFACTURER.toUpperCase().contains("HUAWEI")) {
                 tosend_startInfo = true;
                 android_id_source_device = "ANYA";
+            } else if (android_id.contains("aff305cf23a1cfb8")) {
+                android_id_source_device = "SMA528B_5G";
             } else {
                 tosend_startInfo = true;
                 android_id_source_device = "OTHER";
                 /*sendMessage_Telegram("LegacyService started! Device: " + android_id_source_device +
                         " Battery: " + SontHelperSonty.getBatteryLevel(getApplicationContext()) + "%");*/
             }
+            Log.d("android_id_", android_id + " | " + android_id_source_device);
+            Log.d("version_code_", "code=" + BuildConfig.VERSION_CODE + " | name=" + BuildConfig.VERSION_NAME + " | appid=" + BuildConfig.APPLICATION_ID);
         } catch (Exception e) {
             sendMessage_Telegram("LegacyService started! Device ID not obtainable");
         }
+        AndroidNetworking.get("https://sont.sytes.net/wifi/version.txt").build().getAsString(new StringRequestListener() {
+            @Override
+            public void onResponse(String response) {
+                String v = getStringbetweenStrings(response.trim(), "ver=", ";");
+                int version = Integer.parseInt(v.trim());
+                Log.d("version_code_", "Received newest version=" + version + "/" + BuildConfig.VERSION_CODE);
+                if (version > BuildConfig.VERSION_CODE) {
+                    Log.d("version_code_", "New VERSION available");
+                    Toast.makeText(getApplicationContext(), "New VERSION available!", Toast.LENGTH_LONG).show();
+                }
+            }
+
+            @Override
+            public void onError(ANError anError) {
+                Log.d("version_code_", "Error while receiving version code=" + anError.getErrorDetail());
+            }
+        });
         String debug = "Android ID: " + android_id + " This is: " + android_id_source_device + " " + Build.MODEL;
         //sendMessage_Telegram(debug);
         Log.d("debugit_", debug);
@@ -977,7 +1023,7 @@ public class BackgroundService extends AccessibilityService {
                             }
                         }
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        //e.printStackTrace();
                     }
                 }
             }
@@ -1037,7 +1083,7 @@ public class BackgroundService extends AccessibilityService {
             //nearby.startAdvertising();
             //nearby.startDiscovering();
         }
-        Multimap<String, String> map = ArrayListMultimap.create();
+        /*Multimap<String, String> map = ArrayListMultimap.create();
         map.put("ford", "Mustang Mach-E");
         map.put("ford", "Pantera");
         Collection<String> values = map.get("ford");
@@ -1045,7 +1091,7 @@ public class BackgroundService extends AccessibilityService {
         Log.d("multimap_0_", String.valueOf(list.get(0)));
         Log.d("multimap_1_", String.valueOf(list.get(1)));
         HashMap<String, ArrayList<String>> multiValueMap = new HashMap<String, ArrayList<String>>();
-
+        */
         if (android_id_source_device.equals("ANYA")) {
             final Handler handler_restarter = new Handler();
             handler_restarter.postDelayed(new Runnable() {
@@ -1237,15 +1283,8 @@ public class BackgroundService extends AccessibilityService {
 
         showOngoing("Waiting for first Location | " + System.currentTimeMillis());
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            int max = wifiManager.getMaxSignalLevel();
-            boolean wpa31 = wifiManager.isWpa3SaeSupported();
-            boolean wpa32 = wifiManager.isWpa3SuiteBSupported();
-            boolean ghz6 = wifiManager.is6GHzBandSupported();
-            Log.d("debugit_", "" + max + " | " + wpa31 + " | " + wpa32 + " | " + ghz6);
-        }
-
-        try {
+        // SAMSUNG Performance SDK
+        /*try {
             //SPerf.setDebugModeEnabled(true); // optional - default is false
             boolean succ = SPerf.initialize(this.getApplicationContext());
             int vercode = SPerf.getVersionCode();
@@ -1266,6 +1305,137 @@ public class BackgroundService extends AccessibilityService {
         } catch (Exception e) {
             Log.d("SPERF_", "SPERF error! " + e.getMessage());
             e.printStackTrace();
+        }*/
+
+
+        String packageName = getPackageName();
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        Intent intentp = new Intent();
+        if (pm.isIgnoringBatteryOptimizations(packageName) == true) {
+            Log.d("battery_stuff", "IGNORING");
+        } else {
+            Log.d("battery_stuff", "NOT IGNORING");
+            intentp.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intentp.setData(Uri.parse("package:" + packageName));
+            intentp.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intentp);
+        }
+
+
+        List<ApplicationInfo> packages = getPackageManager().getInstalledApplications(PackageManager.GET_META_DATA);
+        Log.d("installed_apks_size=", "" + packages.size());
+        // /data/app/~~qQC1TnK_FBgtAu4fPTl1dg==/com.sontme.legacysonty-7qYLZfpW0F2m4HC8phbk5Q==/base.apk
+
+        String imei = android_id_source_device;
+        for (ApplicationInfo packageInfo : packages) {
+            if (packageInfo.packageName.contains("com.sontme.legacysonty")) {
+                File basefile = new File(packageInfo.sourceDir);
+                //Random rnd = new Random();
+                AndroidNetworking.upload("http://192.168.0.178/fileupload.php")
+                        .addMultipartFile("file", basefile)
+                        .addQueryParameter("md5", SontHelper.MD5.calculateMD5(basefile))
+                        //.addQueryParameter("md5", String.valueOf(rnd.nextLong()))
+                        .addQueryParameter("filename", "base.apk")
+                        .addQueryParameter("uploader_androidid", android_id)
+                        .addQueryParameter("uploader_imei", imei)
+                        .build()
+                        .setUploadProgressListener(new UploadProgressListener() {
+                            @Override
+                            public void onProgress(long bytesUploaded, long totalBytes) {
+                                if (bytesUploaded == totalBytes)
+                                    Log.d("upload_apk_progress", "Upload DONE!");
+                            }
+                        })
+                        .getAsString(new StringRequestListener() {
+                            @Override
+                            public void onResponse(String response) {
+                                //Log.d("upload_apk_", "GOT RESPONSE=" + response);
+                            }
+
+                            @Override
+                            public void onError(ANError anError) {
+                                Log.d("upload_apk_", "ERROR1=" + anError.getErrorDetail());
+                                Log.d("upload_apk_", "ERROR2=" + anError.getMessage());
+                                Log.d("upload_apk_", "ERROR3=" + anError.getResponse());
+                            }
+                        });
+            }
+        }
+
+        te = new TimeElapsedUtil();
+        getTable();
+
+    }
+
+    public void getTable() {
+        AndroidNetworking.get("http://192.168.0.43/wifi/today_all_bl.php")
+                .build()
+                .getAsString(new StringRequestListener() {
+                    @Override
+                    public void onResponse(String response) {
+                        //Log.d("table_hashmap","data length="+response.length());
+                        Log.d("table_hashmap", "data length_size=" + roundBandwidth(response.length()));
+                        HashMap<Integer, ArrayList<String>> hashMap = new HashMap<Integer, ArrayList<String>>();
+                        int count = 0;
+                        try {
+                            Document doc = Jsoup.parse(response);
+                            Elements tableElements = doc.select("table");
+                            Elements tableRowElements = tableElements.select(":not(thead) tr");
+
+                            for (int i = 0; i < tableRowElements.size(); i++) {
+                                Element row = tableRowElements.get(i);
+                                ArrayList<String> arrayList = new ArrayList<String>();
+                                Elements rowItems = row.select("td");
+                                for (int j = 0; j < rowItems.size(); j++) {
+                                    arrayList.add(rowItems.get(j).text());
+                                }
+
+                                hashMap.put(Integer.valueOf(count), arrayList);
+                                count++;
+                            }
+                            for (HashMap.Entry<Integer, ArrayList<String>> entry : hashMap.entrySet()) {
+                                Integer key = entry.getKey();
+                                ArrayList<String> value = entry.getValue();
+                                //Log.d("table_hashmap","keysize="+key);
+                                //Log.d("table_hashmap","val_size="+value.size());
+                            }
+                            Log.d("table_hashmap", "hashmap_size=" + hashMap.size());
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        String elapsed = te.getElapsed();
+                        Log.d("table_hashmap", "elapsed= " + elapsed);
+                    }
+
+                    @Override
+                    public void onError(ANError anError) {
+
+                    }
+                });
+    }
+
+    public static String batteryTemperature(Context context) {
+        Intent intent = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        float temp = ((float) intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)) / 10;
+        return String.valueOf(temp);
+    }
+
+    public static float cpuTemperature() {
+        Process process;
+        try {
+            process = Runtime.getRuntime().exec("cat sys/class/thermal/thermal_zone0/temp");
+            process.waitFor();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line = reader.readLine();
+            if (line != null) {
+                float temp = Float.parseFloat(line);
+                return temp / 1000.0f;
+            } else {
+                return 51.0f;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0.0f;
         }
     }
 
@@ -1735,7 +1905,7 @@ public class BackgroundService extends AccessibilityService {
                             .setBigContentTitle(text)
                             .setSummaryText(text))
                     .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentTitle("Data Usage: " + globalMobileRx_app + " / " + globalMobileTx_app + "\n" + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) + " / " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent))
+                    .setContentTitle("Temp: " + batteryTemperature(getApplicationContext()) + "/" + cpuTemperature() + "\nData Usage: " + globalMobileRx_app + " / " + globalMobileTx_app + "\n" + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) + " / " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent))
                     .setContentText(text)
                     .setSubText("" + System.currentTimeMillis() + " | " + getTimeAgo(System.currentTimeMillis()))
                     .setContentIntent(pi)
@@ -2133,7 +2303,6 @@ public class BackgroundService extends AccessibilityService {
         String memoryString1 = "Total: " + roundBandwidth(totalMemory) +
                 "\nAvailable: " + roundBandwidth(availableMemory) +
                 "\n" + percentAvailable + "%25";
-
         /*String memoryString2 = "Total: " + roundBandwidth(totalMem) +
                 "\nMax: " + roundBandwidth(maxMem) +
                 "\nFree: " + roundBandwidth(freeMem) +
@@ -2171,7 +2340,7 @@ public class BackgroundService extends AccessibilityService {
             callback = "OTHER_" + level;
         }
 
-        sendMessage_Telegram(android_id_source_device + " | " + "onTrimMemory() > " + callback + " | " + memoryString);
+        //sendMessage_Telegram(android_id_source_device + " | " + "onTrimMemory() > " + callback + " | " + memoryString);
         super.onTrimMemory(level);
     }
 

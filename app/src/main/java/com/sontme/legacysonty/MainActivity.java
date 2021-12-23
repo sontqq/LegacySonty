@@ -3,20 +3,16 @@ package com.sontme.legacysonty;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.app.Dialog;
-import android.app.Notification;
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.BluetoothProfile;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.GnssStatus;
@@ -28,13 +24,19 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
+import android.nfc.NdefMessage;
+import android.nfc.NdefRecord;
+import android.nfc.NfcAdapter;
+import android.nfc.NfcEvent;
+import android.nfc.NfcManager;
+import android.nfc.Tag;
+import android.nfc.tech.MifareUltralight;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.provider.Settings;
 import android.telephony.CellInfo;
 import android.telephony.CellInfoCdma;
 import android.telephony.CellInfoGsm;
@@ -48,24 +50,51 @@ import android.telephony.TelephonyManager;
 import android.text.Html;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 
+import com.facebook.AccessToken;
+import com.facebook.CallbackManager;
+import com.facebook.FacebookCallback;
+import com.facebook.FacebookException;
+import com.facebook.FacebookSdk;
+import com.facebook.GraphRequest;
+import com.facebook.GraphResponse;
+import com.facebook.Profile;
+import com.facebook.login.LoginManager;
+import com.facebook.login.LoginResult;
+import com.facebook.login.widget.LoginButton;
 import com.google.android.gms.analytics.HitBuilders;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInClient;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.SignInButton;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.tasks.Task;
+import com.lemmingapex.trilateration.NonLinearLeastSquaresSolver;
+import com.lemmingapex.trilateration.TrilaterationFunction;
+import com.squareup.picasso.Picasso;
 
+import org.apache.commons.math3.fitting.leastsquares.LeastSquaresOptimizer;
+import org.apache.commons.math3.fitting.leastsquares.LevenbergMarquardtOptimizer;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.net.URL;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -75,10 +104,15 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.stream.Stream;
+
+import pub.devrel.easypermissions.EasyPermissions;
+import pub.devrel.easypermissions.PermissionRequest;
 
 
 public class MainActivity extends AppCompatActivity {
@@ -86,7 +120,10 @@ public class MainActivity extends AppCompatActivity {
     private static final int MINUTE_MILLIS = 60 * SECOND_MILLIS;
     private static final int HOUR_MILLIS = 60 * MINUTE_MILLIS;
     private static final int DAY_MILLIS = 24 * HOUR_MILLIS;
-
+    CallbackManager fBcallbackManager;
+    Profile fB_profile;
+    Button fblogout;
+    Button fblogin;
     TextView txt;
     TextView statsTextview;
     //SeekBar seekBar;
@@ -118,6 +155,9 @@ public class MainActivity extends AppCompatActivity {
     final int[] y = {1};
     boolean doubleBackToExitPressedOnce = false;
 
+    NfcAdapter nfcadapter;
+    PendingIntent nfcPendingIntent;
+
     public ServiceConnection mServerConn = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -129,52 +169,6 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(getApplicationContext(), "SERVICE DISCONNECTED", Toast.LENGTH_LONG).show();
         }
     };
-
-    public void managePermissions() {
-        PackageInfo info = null;
-        try {
-            info = getPackageManager().getPackageInfo(getApplicationContext().getPackageName(),
-                    PackageManager.GET_PERMISSIONS);
-        } catch (PackageManager.NameNotFoundException e) {
-            e.printStackTrace();
-        }
-        String[] permissions = info.requestedPermissions;
-
-        String[] PERMISSIONS = {
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-                //Manifest.permission.READ_CONTACTS,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.ACCESS_LOCATION_EXTRA_COMMANDS,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.ACCESS_NETWORK_STATE/*,*/
-                //Manifest.permission.READ_PHONE_STATE
-        };
-
-        String[] PERMISSIONS_ALL = Stream.concat(Arrays.stream(permissions), Arrays.stream(PERMISSIONS))
-                .toArray(String[]::new);
-
-        /*if (!hasPermissions(getApplicationContext(), PERMISSIONS_ALL)) {
-            //ActivityCompat.requestPermissions(this, PERMISSIONS_ALL, 1);
-        }*/
-
-        for (String permission : PERMISSIONS_ALL) {
-            if (!hasPermissions(getApplicationContext(), permission)) {
-                String[] permholder = new String[1];
-                permholder[0] = permission;
-                ActivityCompat.requestPermissions(this, permholder, 1);
-            }
-        }
-
-        String packageName = getPackageName();
-        Intent powerIgnoreIntent = new Intent();
-        powerIgnoreIntent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-        powerIgnoreIntent.setData(Uri.parse("package:" + packageName));
-        //startActivity(powerIgnoreIntent);
-
-    }
 
     public boolean hasPermissions(Context context, String... permissions) {
         if (context != null && permissions != null) {
@@ -215,12 +209,14 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        FacebookSdk.sdkInitialize(getApplicationContext());
         super.onCreate(savedInstanceState);
+        this.requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.activity_main);
 
         //showLocationAlert();
 
-        ActivityResultLauncher<String[]> locationPermissionRequest =
+        /*ActivityResultLauncher<String[]> locationPermissionRequest =
                 registerForActivityResult(new ActivityResultContracts
                                 .RequestMultiplePermissions(), result -> {
                             Boolean fineLocationGranted = result.getOrDefault(
@@ -241,9 +237,47 @@ public class MainActivity extends AppCompatActivity {
         locationPermissionRequest.launch(new String[]{
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
-        });
+        });*/
 
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        String[] perms = {Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION};
+        String[] perms2 = {Manifest.permission.ACCESS_BACKGROUND_LOCATION};
+        String locale = Locale.getDefault().getLanguage(); // hu/en
+        String askString = "";
+        if (locale.equals("hu")) {
+            askString = "Az alkalmazás helyes működéséhez kérjük engedélyezze " +
+                    "a helyadatokhoz " +
+                    "való hozzáférést a háttérben " +
+                    "amikor az alkalmazás nincs használatban vagy be van zárva.";
+        } else {
+            askString = "The application in order to work properly needs your permission to use Location Data in the background, when the application not in use or closed.";
+        }
+
+        if (!EasyPermissions.hasPermissions(this, perms)) {
+            EasyPermissions.requestPermissions(
+                    new PermissionRequest.Builder(this, 0, perms)
+                            .setRationale("Please enable Location Permission for the Application")
+                            .setPositiveButtonText("Ok")
+                            .setNegativeButtonText("No")
+                            .setTheme(R.style.AppTheme)
+                            .build());
+        }
+        if (!EasyPermissions.hasPermissions(this, perms2)) {
+            String rationale = "always on background location";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                PackageManager pm = getPackageManager();
+                rationale = pm.getBackgroundPermissionOptionLabel().toString();
+            }
+            EasyPermissions.requestPermissions(
+                    new PermissionRequest.Builder(this, 1, perms2)
+                            .setRationale(askString)
+                            .setPositiveButtonText("Ok")
+                            .setNegativeButtonText("No")
+                            .setTheme(R.style.AppTheme)
+                            .build());
+        }
+
+
+        /*if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ImageView image = new ImageView(this);
             image.setImageResource(R.drawable.gpssatellite);
 
@@ -266,7 +300,7 @@ public class MainActivity extends AppCompatActivity {
             });
             AlertDialog alert = builder.create();
             alert.show();
-        }
+        }*/
         //managePermissions();
         Intent i = new Intent(
                 MainActivity.this, BackgroundService.class);
@@ -300,7 +334,7 @@ public class MainActivity extends AppCompatActivity {
                     List<ScanResult> temp = BackgroundService.wifiManager.getScanResults();
                     Collections.sort(temp, new Comparator<ScanResult>() {
                         @Override
-                        public int compare(android.net.wifi.ScanResult o1, android.net.wifi.ScanResult o2) {
+                        public int compare(ScanResult o1, ScanResult o2) {
                             return Integer.compare(o1.level, o2.level);
                         }
                     });
@@ -433,7 +467,7 @@ public class MainActivity extends AppCompatActivity {
                                     "\nSatellite count: " + status.getSatelliteCount() + "\n" +
                                     summed_for_notif);
                         } catch (Exception e) {
-                            txt4.setText(e.getMessage());
+                            txt4.setText("No location data yet");
                         }
                     }
                 });
@@ -545,30 +579,6 @@ public class MainActivity extends AppCompatActivity {
         BTN_wifi_color.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                int max = 255;
-                int x = mapHpToColor(y[0], max);
-                BTN_wifi_color.setBackgroundColor(y[0]);
-                BTN_wifi_color.setText("Value: " + y[0] + " > " + x);
-                Log.d("color_loop", "i:" + y[0] + " > " + x);
-                if (y[0] >= Integer.MAX_VALUE - 1) {
-                    y[0] = 1;
-                } else {
-                    y[0] += Integer.MAX_VALUE / 10;
-                }
-            }
-
-            public int mapHpToColor(int input, int max) {
-                double maxColValue = 255;
-                double redValue = (input > max / 2 ? 1 - 2 * (input - max / 2) / max : 1.0) * maxColValue;
-                double greenValue = (input > max / 2 ? 1.0 : 2 * input / max) * maxColValue;
-                return getIntFromColor((int) redValue, (int) greenValue, 0);
-            }
-
-            public int getIntFromColor(int Red, int Green, int Blue) {
-                Red = (Red << 16) & 0x00FF0000; //Shift red 16-bits and mask out other stuff
-                Green = (Green << 8) & 0x0000FF00; //Shift Green 8-bits and mask out other stuff
-                Blue = Blue & 0x000000FF; //Mask out anything not blue.
-                return 0xFF000000 | Red | Green | Blue; //0xFF000000 for 100% Alpha. Bitwise OR everything together.
             }
         });
         BTN_connectOpenWifi.getBackground().setAlpha(128);
@@ -616,9 +626,30 @@ public class MainActivity extends AppCompatActivity {
 
             }
         });
+        BTN_RerunQues.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Thread t = new Thread() {
+                    @Override
+                    public void run() {
+                        while (BackgroundService.webRequestExecutor.getQueue().size() < BackgroundService.webRequestExecutor.getQueue().size() * 5) {
+                            for (Runnable run : BackgroundService.webReqRunnablesList) {
+                                BackgroundService.webRequestExecutor.submit(run);
+                            }
+                            Log.d("TTTT_", BackgroundService.webRequestExecutor.getQueue().size() + "<- size");
+                        }
+                    }
+                };
+                t.start();
+                //Toast.makeText(getApplicationContext(), "Height=" + BTN_RerunQues.getHeight() + " | " + BTN_RerunQues.getLayoutParams().height, Toast.LENGTH_LONG).show();
+                return true;
+            }
+        });
         BTN_RerunQues.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+
+
                 Thread thread = new Thread() {
                     @Override
                     public void run() {
@@ -636,7 +667,6 @@ public class MainActivity extends AppCompatActivity {
                                         Toast.LENGTH_LONG).show();
                             }
                         });
-                        super.run();
                     }
                 };
                 thread.start();
@@ -684,7 +714,7 @@ public class MainActivity extends AppCompatActivity {
                         dialog.cancel();
                     }
                 });
-                dialog.show();
+                //dialog.show();
 
             }
         });
@@ -694,7 +724,59 @@ public class MainActivity extends AppCompatActivity {
         BTN_startNearby = findViewById(R.id.btn_startnearby);
         BTN_stopNearby = findViewById(R.id.btn_stopnearby);
         BTN_cellTowers = findViewById(R.id.btn_celltowers);
-
+        BTN_cellTowers.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Toast.makeText(getApplicationContext(), "Get TRIANGULATE info. Nothing else", Toast.LENGTH_LONG).show();
+                return false;
+            }
+        });
+        BTN_cellTowers.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                //RealVector standardDeviation = optimum.getSigma(0);
+                //RealMatrix covarianceMatrix = optimum.getCovariances(0);
+                int i = 0;
+                double[][] locations = new double[BackgroundService.aplist.size()][2];
+                double[] distances = new double[BackgroundService.aplist.size()];
+                Set entries = BackgroundService.aplist.entrySet();
+                Iterator entriesIterator = entries.iterator();
+                String distancess = "";
+                while (entriesIterator.hasNext()) {
+                    Map.Entry<String, ApWithLocation> mapping = (Map.Entry<String, ApWithLocation>) entriesIterator.next();
+                    locations[i][0] = mapping.getValue().getLocation().getLatitude();
+                    locations[i][1] = mapping.getValue().getLocation().getLongitude();
+                    distances[i] = mapping.getValue().getRssi();
+                    i++;
+                    try {
+                        double meters = BackgroundService.calculateDistance(mapping.getValue().getRssi(), mapping.getValue().getFrequency());
+                        String s = "[" + i + "] " + mapping.getValue().getSsid() + " | " + mapping.getValue().getMac() + " | " + BackgroundService.round(meters, 2) + " m";
+                        BackgroundService.sendMessage_Telegram(s);
+                        Log.d("distance_c", s);
+                        distancess += s + "\n";
+                    } catch (Exception e) {
+                        Log.d("distance_c", "error: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+                try {
+                    NonLinearLeastSquaresSolver solver = new NonLinearLeastSquaresSolver(new TrilaterationFunction(locations, distances), new LevenbergMarquardtOptimizer());
+                    LeastSquaresOptimizer.Optimum optimum = solver.solve();
+                    double[] centroid = optimum.getPoint().toArray();
+                    Location test = new Location("testlocation");
+                    test.setLatitude(centroid[0]);
+                    test.setLongitude(centroid[1]);
+                    double dist = BackgroundService.CURRENT_LOCATION.distanceTo(test);
+                    Log.d("triangulate_", "Distance = " + BackgroundService.round(dist, 2));
+                    String address = BackgroundService.locationToStringAddress(getApplicationContext(), test);
+                    BackgroundService.sendMessage_Telegram("Distance: " + BackgroundService.round(dist, 2) + " m ADDRESS: " + address);
+                    Toast.makeText(getApplicationContext(), distancess + "\n\nDistance: " + BackgroundService.round(dist, 2) + " m ADDRESS: " + address, Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    Log.d("triangulate_", "error: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        });
         BTN_BL_customPair.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -804,6 +886,8 @@ public class MainActivity extends AppCompatActivity {
                     String timeago = BackgroundService.getTimeAgo(BackgroundService.lastokscan);
                     String timeago2 = BackgroundService.getTimeAgo(time1);
                     String timeago3 = BackgroundService.getTimeAgo(BackgroundService.lastBL_scan);
+                    if (timeago == null)
+                        Log.d("timeago_null", "timeago is null " + timeago);
                     if (timeago.equalsIgnoreCase("just now") || // need to modify
                             timeago2.equalsIgnoreCase("just now") ||
                             timeago3.equalsIgnoreCase("just now")) {
@@ -834,7 +918,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception e) {
                     BTN_scans.setText(e.getMessage());
-                    //e.printStackTrace();
+                    e.printStackTrace();
                 }
                 ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                 NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
@@ -869,7 +953,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             int getGreenToRedAndroid(double value) {
-                return android.graphics.Color.HSVToColor(new float[]{(float) value * 120f, 1f, 1f});
+                return Color.HSVToColor(new float[]{(float) value * 120f, 1f, 1f});
             }
         }, 1000);
 
@@ -881,6 +965,365 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
         }
 
+
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken("8342526467-9sqd8bsp5ap30nbl1ssjrplut30cn42b.apps.googleusercontent.com")
+                //.requestIdToken("8342526467-466kq8rjau1pej8j44bh56ekip7keolf.apps.googleusercontent.com")
+                .requestEmail()
+                .build();
+        GoogleSignInClient mGoogleSignInClient = GoogleSignIn.getClient(this, gso);
+        GoogleSignInAccount account = GoogleSignIn.getLastSignedInAccount(this);
+        if (account == null) {
+            // not signed in
+        } else {
+            // already signed in
+        }
+        SignInButton signInButton = findViewById(R.id.sign_in_button);
+        signInButton.setSize(SignInButton.SIZE_STANDARD);
+
+        signInButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent signInIntent = mGoogleSignInClient.getSignInIntent();
+                startActivityForResult(signInIntent, 1111);
+            }
+        });
+
+        TextView fbText = findViewById(R.id.fbtext);
+        if (fB_profile == null) {
+            fbText.setText("Sign in via Facebook");
+            ImageView img = findViewById(R.id.fbprofilepic);
+            img.setVisibility(View.GONE);
+        } else {
+            ImageView img = findViewById(R.id.fbprofilepic);
+            img.setVisibility(View.VISIBLE);
+            fbText.setText("Welcome " + fB_profile.getName());
+        }
+        AccessToken accessToken = AccessToken.getCurrentAccessToken();
+        fBcallbackManager = CallbackManager.Factory.create();
+        fblogin = findViewById(R.id.fblogin);
+        LoginButton loginButton = findViewById(R.id.login_button);
+        loginButton.setReadPermissions("email", "public_profile", "user_friends");
+        fblogin.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loginButton.performClick();
+                //ImageView img = findViewById(R.id.fbprofilepic);
+                //img.setVisibility(View.VISIBLE);
+            }
+        });
+        loginButton.registerCallback(fBcallbackManager,
+                new FacebookCallback<LoginResult>() {
+                    @Override
+                    public void onSuccess(LoginResult loginResult) {
+                        String accessToken = loginResult.getAccessToken()
+                                .getToken();
+                        Log.d("FB_LOGIN_", "success login: " + accessToken);
+                        fbText.setText("Facebook: Logging In");
+                        GraphRequest request = GraphRequest.newMeRequest(
+                                loginResult.getAccessToken(),
+                                new GraphRequest.GraphJSONObjectCallback() {
+                                    @Override
+                                    public void onCompleted(JSONObject object, GraphResponse response) {
+                                        try {
+                                            String id = object.getString("id");
+                                            try {
+                                                URL profile_pic = new URL(
+                                                        "http://graph.facebook.com/" + id + "/picture?type=large");
+                                                Log.d("FB_LOGIN_", "profile_picture: " + profile_pic);
+                                                ImageView img = findViewById(R.id.fbprofilepic);
+                                                img.setVisibility(View.VISIBLE);
+                                                Log.d("FB_LOGIN_", "Profile picture: " + profile_pic.toString());
+                                                Log.d("FB_LOGIN_", "Profile picture: " + profile_pic.toURI().toString());
+                                                LinearLayout proflay = findViewById(R.id.proflay);
+
+                                                ViewTreeObserver observer = proflay.getViewTreeObserver();
+                                                observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                                                    @Override
+                                                    public void onGlobalLayout() {
+                                                        int height = proflay.getHeight();
+                                                        Log.d("FB_LOGIN_", "height: " + height);
+                                                        Log.d("FB_LOGIN_", "height2: " + loginButton.getHeight());
+                                                        Picasso.get()
+                                                                .load("http://graph.facebook.com/" + id + "/picture?type=large")
+                                                                .resize(100, 100)
+                                                                .noFade()
+                                                                .into(img);
+                                                        proflay.getViewTreeObserver().removeGlobalOnLayoutListener(
+                                                                this);
+                                                    }
+                                                });
+                                            } catch (Exception ee) {
+                                                Log.d("FB_LOGIN_", "profpic: " + ee.getMessage());
+                                                ee.printStackTrace();
+                                                fbText.setText("Error Logging In");
+                                            }
+                                            String name = object.getString("name");
+                                            String email = object.getString("email");
+                                            //String gender = object.getString("gender");
+                                            //String birthday = object.getString("birthday");
+                                            Log.d("FB_LOGIN_", "logged in 1: " + name);
+                                            Log.d("FB_LOGIN_", "logged in 2: " + email);
+                                            //Log.d("FB_LOGIN_","logged in 3: " + gender);
+                                            //Log.d("FB_LOGIN_","logged in 4: " + birthday);
+                                            fbText.setText("Welcome " + name);
+                                            fblogin.setVisibility(View.GONE);
+                                            fblogout.setVisibility(View.VISIBLE);
+                                            ImageView img = findViewById(R.id.fbprofilepic);
+                                            img.setVisibility(View.VISIBLE);
+                                        } catch (Exception e) {
+                                            fbText.setText("Error Logging In");
+                                            fblogin.setVisibility(View.VISIBLE);
+                                            fblogout.setVisibility(View.GONE);
+                                            ImageView img = findViewById(R.id.fbprofilepic);
+                                            img.setVisibility(View.GONE);
+                                            e.printStackTrace();
+                                        }
+                                    }
+                                });
+                        Bundle parameters = new Bundle();
+                        parameters.putString("fields", "id,name,email");
+                        request.setParameters(parameters);
+                        request.executeAsync();
+                    }
+
+                    @Override
+                    public void onCancel() {
+
+                    }
+
+                    @Override
+                    public void onError(FacebookException exception) {
+                        exception.printStackTrace();
+                    }
+                });
+        // fblogin logout
+        // LoginManager.getInstance().logOut();
+        fblogout = findViewById(R.id.fblogout);
+        fblogout.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                LoginManager.getInstance().logOut();
+                fbText.setText("Signed Out");
+                fblogin.setVisibility(View.VISIBLE);
+                fblogout.setVisibility(View.GONE);
+                ImageView img = findViewById(R.id.fbprofilepic);
+                img.setVisibility(View.GONE);
+            }
+        });
+        fB_profile = Profile.getCurrentProfile().getCurrentProfile();
+        if (fB_profile != null) {
+            // user has logged in
+            fbText.setText("Welcome " + fB_profile.getName());
+            fblogin.setVisibility(View.GONE);
+            fblogout.setVisibility(View.VISIBLE);
+            Button reqbtn = findViewById(R.id.btn_reque);
+            ImageView img = findViewById(R.id.fbprofilepic);
+            /*ViewTreeObserver vto = reqbtn.getViewTreeObserver();
+            vto.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override
+                public void onGlobalLayout() {
+                    int height = reqbtn.getHeight();
+                }
+            });*/
+            int height = reqbtn.getHeight();
+            Uri prof = fB_profile.getProfilePictureUri(144, 144);
+            Log.d("FB_LOGIN_", "logged in: " + fB_profile.getName() + " " + prof);
+            String id = fB_profile.getId();
+            Picasso.get()
+                    //.load("http://graph.facebook.com/" + id + "/picture?type=large")
+                    .load(prof)
+                    .resize(144, 144)
+                    .noFade()
+                    .into(img);
+            img.setVisibility(View.VISIBLE);
+
+            //img.setLayoutParams(new ViewGroup.LayoutParams(100,100));
+            String profileid = fB_profile.getId();
+            GraphRequest request = GraphRequest.newGraphPathRequest(
+                    accessToken,
+                    "/" + profileid + "/friends",
+                    new GraphRequest.Callback() {
+                        @Override
+                        public void onCompleted(GraphResponse response) {
+                            try {
+                                Log.d("FB_LOGIN_FRIEND", "Friend List1: " + response.toString());
+                                Log.d("FB_LOGIN_FRIEND", "Friend List3: " + response.getJSONObject().toString());
+                                JSONArray jsonArrayFriends = response.getJSONObject().getJSONArray("data");
+                                //JSONObject friendlistObject = jsonArrayFriends.getJSONObject(0);
+                                Log.d("FB_LOGIN_FRIEND", "Friend List4: " + jsonArrayFriends.length());
+                                //Log.d("FB_LOGIN_FRIEND","Friend List5: " + friendlistObject.toString());
+                            } catch (Exception e) {
+                                Log.d("FB_LOGIN_FRIEND", "ERROR: " + e.getMessage());
+                                e.printStackTrace();
+                            }
+                        }
+                    });
+            //request.executeAsync();
+
+        } else {
+            // user has not logged in
+            fbText.setText("Please Sign In");
+            fblogin.setVisibility(View.VISIBLE);
+            fblogout.setVisibility(View.GONE);
+            ImageView img = findViewById(R.id.fbprofilepic);
+            img.setVisibility(View.GONE);
+            Log.d("FB_LOGIN_", "logged out");
+        }
+
+        NfcManager manager = (NfcManager) getSystemService(Context.NFC_SERVICE);
+        nfcadapter = NfcAdapter.getDefaultAdapter(this);
+        nfcPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, this.getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
+        nfcadapter.setNdefPushMessageCallback(new NfcAdapter.CreateNdefMessageCallback() {
+            @Override
+            public NdefMessage createNdefMessage(NfcEvent event) {
+                Log.d("NGC_TAG", "createndefmessage - " + event.toString());
+                NdefMessage ndefmsg = new NdefMessage(
+                        new NdefRecord[]{
+                                NdefRecord.createApplicationRecord("com.sontme.legacysonty")});
+                return ndefmsg;
+            }
+        }, this);
+    }
+
+    private NdefMessage createndefmessage(String msg) {
+        byte[] languageCode;
+        byte[] msgBytes;
+        try {
+            languageCode = "en".getBytes("UTF-8");
+            msgBytes = msg.getBytes("UTF-8");
+        } catch (Exception e) {
+            return null;
+        }
+
+        byte[] messagePayload = new byte[1 + languageCode.length
+                + msgBytes.length];
+        messagePayload[0] = (byte) 0x02; // status byte: UTF-8 encoding and
+        // length of language code is 2
+        System.arraycopy(languageCode, 0, messagePayload, 1,
+                languageCode.length);
+        System.arraycopy(msgBytes, 0, messagePayload, 1 + languageCode.length,
+                msgBytes.length);
+
+        NdefMessage message;
+        NdefRecord[] records = new NdefRecord[1];
+        NdefRecord textRecord = new NdefRecord(NdefRecord.TNF_WELL_KNOWN,
+                NdefRecord.RTD_TEXT, new byte[]{}, messagePayload);
+        records[0] = textRecord;
+        message = new NdefMessage(records);
+        return message;
+    }
+
+    private void enableNdefExchangeMode() {
+        try {
+            NdefMessage msg = createndefmessage("hello");
+            nfcadapter.enableForegroundNdefPush(this, msg);
+            IntentFilter ndefDetected = new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED);
+            IntentFilter[] mNdefExchangeFilters = new IntentFilter[]{ndefDetected};
+            try {
+                nfcadapter.enableForegroundDispatch(this, nfcPendingIntent,
+                        mNdefExchangeFilters, null);
+                nfcadapter.setNdefPushMessage(msg, this);
+                nfcadapter.setNdefPushMessageCallback(new NfcAdapter.CreateNdefMessageCallback() {
+                    @Override
+                    public NdefMessage createNdefMessage(NfcEvent event) {
+                        Log.d("NFC_TAG", "event: " + event.toString());
+                        return null;
+                    }
+                }, this);
+            } catch (Exception e) {
+                nfcadapter.enableForegroundDispatch(this, nfcPendingIntent,
+                        new IntentFilter[]{ndefDetected}, null);
+                nfcadapter.setNdefPushMessage(msg, this);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void onResume() {
+        try {
+            BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
+                    .setCategory("Action")
+                    .setAction("MainActivity onResume")
+                    .build());
+        } catch (Exception e) {
+            //e.printStackTrace();
+        }
+        /*
+        nfcadapter = NfcAdapter.getDefaultAdapter(this);
+        nfcPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this,
+                getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
+        */
+        try {
+            nfcadapter.enableForegroundDispatch(this, nfcPendingIntent, null, null);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //enableNdefExchangeMode();
+
+        super.onResume();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (nfcadapter != null) {
+            nfcadapter.disableForegroundDispatch(this);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        String action = intent.getAction();
+        if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)
+                || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)
+                || NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
+            Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
+            MifareUltralight mifareUlTag = MifareUltralight.get(tag);
+            try {
+                mifareUlTag.connect();
+                mifareUlTag.writePage(4, "hello".getBytes(Charset.forName("UTF-8")));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            byte[] payload = SontHelper.NFCHelper.detectTagData(tag).getBytes();
+            String str = new String(payload, StandardCharsets.UTF_8);
+            Log.d("NFC_TAG", "nfc payload str: " + str);
+
+        }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 1111) {
+            Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
+            handleSignInResult(task);
+        }
+        fBcallbackManager.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private void handleSignInResult(Task<GoogleSignInAccount> completedTask) {
+        try {
+            GoogleSignInAccount account = completedTask.getResult(ApiException.class);
+            Log.d("Google_SIGNIN", "Success 1 = " + account.getDisplayName());
+            Log.d("Google_SIGNIN", "Success 2 = " + account.getEmail());
+            Log.d("Google_SIGNIN", "Success 3 = " + account.getAccount().name + " | " + account.getAccount().type);
+            Log.d("Google_SIGNIN", "Success 4 = " + account.getPhotoUrl());
+            //updateUI(account);
+        } catch (ApiException e) {
+            Log.d("Google_SIGNIN", "FAILED code = " + e.getStatusCode());
+            //updateUI(null);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        EasyPermissions.onRequestPermissionsResult(requestCode, permissions, grantResults, this);
     }
 
     @Override
@@ -900,162 +1343,6 @@ public class MainActivity extends AppCompatActivity {
                 doubleBackToExitPressedOnce = false;
             }
         }, 2000);
-    }
-
-    void showNotificationOld(String title, String text) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
-            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
-            Notification notification = notificationBuilder.setOngoing(true)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setGroup("wifi")
-                    .setSubText("subtext")
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setPriority(NotificationManager.IMPORTANCE_MIN)
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .build();
-            //startForeground(2, notification);
-            //startForeground(2, notification);
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            notificationManager.notify(2, notification);
-        } else {
-
-            Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
-            notificationIntent.putExtra("29294", "29294");
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    getApplicationContext(),
-                    29294,
-                    notificationIntent,
-                    PendingIntent.FLAG_IMMUTABLE
-            );
-
-            //region NotificationBUTTONS
-            Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent.setAction("exit");
-            intent.putExtra("requestCode", 99);
-            PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_network.setAction("network");
-            intent_location_network.putExtra("requestCode", 101);
-            PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
-                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_gps.setAction("gps");
-            intent_location_gps.putExtra("requestCode", 102);
-            PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
-                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
-            //endregion
-
-            int color2 = Color.argb(255, 220, 237, 193);
-            Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
-                    .setColorized(true)
-                    .setColor(color2)
-                    .setSubText("subtext MainActivity")
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setStyle(new NotificationCompat.BigTextStyle()
-                            //.addLine(text)
-                            //.addLine(text)
-                            .bigText(text)
-                            .setSummaryText("MainActivity")
-                            .setBigContentTitle(text))
-                    .setContentInfo("CONTENT INFO")
-                    .setContentInfo("CONTENT INFO")
-                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
-                    .setGroup("wifi")
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentIntent(pendingIntent)
-                    .setChannelId("sonty")
-                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
-                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
-                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
-                    .build();
-            //startForeground(58, notification);
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            notificationManager.notify(58, notification);
-        }
-    }
-
-    void showNotificationNew(String title, String text) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            String NOTIFICATION_CHANNEL_ID_SERVICE = getPackageName();
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            nm.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL_ID_SERVICE, "App Service", NotificationManager.IMPORTANCE_DEFAULT));
-            NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, getPackageName());
-            Notification notification = notificationBuilder.setOngoing(true)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setPriority(NotificationManager.IMPORTANCE_MIN)
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .build();
-            //startForeground(2, notification);
-            //startForeground(2, notification);
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            notificationManager.notify(2, notification);
-        } else {
-
-            Intent notificationIntent = new Intent(getApplicationContext(), notificationReceiver.class);
-            notificationIntent.putExtra("29294", "29294");
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    getApplicationContext(),
-                    29294,
-                    notificationIntent,
-                    PendingIntent.FLAG_IMMUTABLE
-            );
-
-            //region NotificationBUTTONS
-            Intent intent = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent.setAction("exit");
-            intent.putExtra("requestCode", 99);
-            PendingIntent pi = PendingIntent.getBroadcast(getApplicationContext(), 99, intent, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_network = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_network.setAction("network");
-            intent_location_network.putExtra("requestCode", 101);
-            PendingIntent pi_location_network = PendingIntent.getBroadcast(getApplicationContext(),
-                    101, intent_location_network, PendingIntent.FLAG_IMMUTABLE);
-
-            Intent intent_location_gps = new Intent(getApplicationContext(), notificationReceiver.class);
-            intent_location_gps.setAction("gps");
-            intent_location_gps.putExtra("requestCode", 102);
-            PendingIntent pi_location_gps = PendingIntent.getBroadcast(getApplicationContext(),
-                    102, intent_location_gps, PendingIntent.FLAG_IMMUTABLE);
-            //endregion
-
-            int color2 = Color.argb(255, 220, 237, 193);
-            Notification notification = new NotificationCompat.Builder(getApplicationContext(), "sontylegacy")
-                    .setColorized(true)
-                    .setColor(color2)
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setStyle(new NotificationCompat.BigTextStyle()
-                            //.addLine(text)
-                            //.addLine(text)
-                            .bigText(text)
-                            .setSummaryText("summary")
-                            .setBigContentTitle(text))
-                    .setContentInfo("CONTENT INFO")
-                    .setBadgeIconType(NotificationCompat.BADGE_ICON_LARGE)
-                    .setGroup("wifi")
-                    .setCategory(Notification.CATEGORY_SERVICE)
-                    .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentIntent(pendingIntent)
-                    .setChannelId("sonty")
-                    .addAction(R.drawable.servicetransparenticon, "NET", pi_location_network)
-                    .addAction(R.drawable.servicetransparenticon, "GPS", pi_location_gps)
-                    .addAction(R.drawable.servicetransparenticon, "EXIT", pi)
-                    .build();
-            //startForeground(58, notification);
-            NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            notificationManager.notify(58, notification);
-        }
     }
 
     private void getcelldata() {
@@ -1105,7 +1392,7 @@ public class MainActivity extends AppCompatActivity {
         int bc = getGreenToRedAndroid(level);
 
         BTN_cellTowers.setBackgroundColor(bc);
-        BTN_cellTowers.setText("Cell Towers: " + infos.size() + " / Average: [" + average + "] " +
+        BTN_cellTowers.setText("Cell Towers: " + infos.size() + " / Average: [" + BackgroundService.round(average, 2) + "] " +
                 summed_for_notif);
     }
 
@@ -1158,28 +1445,6 @@ public class MainActivity extends AppCompatActivity {
             default:
                 return "Unknown";
         }
-    }
-
-    @Override
-    public void onResume() {
-        /*Intent i = new Intent(MainActivity.this, BackgroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, i);
-        } else {
-            startService(i);
-        }
-        bindService(i, mServerConn, Context.BIND_AUTO_CREATE);*/
-
-        try {
-            BackgroundService.analyticsTracker.send(new HitBuilders.EventBuilder()
-                    .setCategory("Action")
-                    .setAction("MainActivity onResume")
-                    .build());
-        } catch (Exception e) {
-            //e.printStackTrace();
-        }
-
-        super.onResume();
     }
 
     public static String roundBandwidth(long bytes) {
