@@ -150,6 +150,7 @@ public class BackgroundService extends AccessibilityService {
     public static boolean tosend_startInfo = false;
     public static WifiManager wifiManager;
     public static ArrayList<Runnable> webReqRunnablesList;
+    public static String infoText = "";
     public static ThreadPoolExecutor webRequestExecutor;
     public static Location CURRENT_LOCATION;
     public static int LOCATON_CHANGE_COUNTER;
@@ -221,6 +222,11 @@ public class BackgroundService extends AccessibilityService {
             }
         }
         return result;
+    }
+
+    public static void addInfo(String title, String desc) {
+        BackgroundService.infoText = BackgroundService.infoText
+                + "\n<br>" + "<b>" + title + "</b>" + " " + desc;
     }
 
     public boolean decideIfNew_wifi(List<ScanResult> wifi_scanresult) {
@@ -1103,7 +1109,7 @@ public class BackgroundService extends AccessibilityService {
                     PendingIntent mPendingIntent = PendingIntent.getActivity(getApplicationContext(), mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT);
                     AlarmManager mgr = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
                     mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent);
-                    System.exit(0);
+                    //System.exit(0);
                     try {
                         unregisterReceiver(wifiReceiver);
                         wifiReceiver = null;
@@ -1365,6 +1371,7 @@ public class BackgroundService extends AccessibilityService {
         te = new TimeElapsedUtil();
         getTable();
 
+
     }
 
     public void getTable() {
@@ -1393,12 +1400,39 @@ public class BackgroundService extends AccessibilityService {
                                 hashMap.put(Integer.valueOf(count), arrayList);
                                 count++;
                             }
+                            HashMap<String, Integer> typeCount = new HashMap<String, Integer>();
+                            HashMap<String, Integer> senderCount = new HashMap<String, Integer>();
                             for (HashMap.Entry<Integer, ArrayList<String>> entry : hashMap.entrySet()) {
                                 Integer key = entry.getKey();
                                 ArrayList<String> value = entry.getValue();
-                                //Log.d("table_hashmap","keysize="+key);
-                                //Log.d("table_hashmap","val_size="+value.size());
+                                //Log.d("table_hashmap","val="+value.toString());
+                                if (typeCount.containsKey(value.get(8))) {
+                                    typeCount.put(value.get(8), typeCount.get(value.get(8)) + 1);
+                                } else {
+                                    typeCount.put(value.get(8), 1);
+                                }
+                                if (!value.get(2).contains("SOURCE")) {
+                                    if (senderCount.containsKey(value.get(2))) {
+                                        senderCount.put(value.get(2), senderCount.get(value.get(2)) + 1);
+                                    } else {
+                                        senderCount.put(value.get(2), 1);
+                                    }
+                                }
                             }
+                            Log.d("table_hashmap", "=====");
+                            for (HashMap.Entry<String, Integer> entry : typeCount.entrySet()) {
+                                String key = entry.getKey();
+                                Integer value = entry.getValue();
+                                Log.d("table_hashmap", "Key= " + key + " Count= " + value);
+                            }
+                            Log.d("table_hashmap", "=====");
+                            Log.d("table_hashmap", "=====");
+                            for (HashMap.Entry<String, Integer> entry : senderCount.entrySet()) {
+                                String key = entry.getKey();
+                                Integer value = entry.getValue();
+                                Log.d("table_hashmap", "Key= " + key + " Count= " + value);
+                            }
+                            Log.d("table_hashmap", "=====");
                             Log.d("table_hashmap", "hashmap_size=" + hashMap.size());
                         } catch (Exception e) {
                             e.printStackTrace();

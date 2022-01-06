@@ -21,11 +21,9 @@
     <uses-permission android:name="android.Manifest.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.Manifest.permission.ACCESS_COARSE_UPDATES" />
-
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
-
     <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -48,14 +46,12 @@
     <uses-feature android:name="android.hardware.nfc" />
 
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+
     <uses-feature
         android:name="android.hardware.fingerprint"
         android:required="false" />
 
-    <!-- android:largeHeap="true" -->
-
     <application
-
         android:allowBackup="true"
         android:hardwareAccelerated="false"
         android:icon="@drawable/servicetransparenticon"
@@ -64,11 +60,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
+        <activity
+            android:name=".InfoActivity"
+            android:exported="false" />
+
         <receiver
-            android:name="Alarm"
+            android:name=".Alarm"
             android:enabled="true"
             android:exported="true"
-            android:permission="android.permission.RECEIVE_BOOT_COMPLETED"><!-- android:process=":remote"> -->
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED"> <!-- android:process=":remote"> -->
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -80,6 +80,7 @@
         <receiver
             android:name=".notificationReceiver"
             android:enabled="true">
+
             <!-- android:process=":remote"> -->
             <intent-filter>
                 <category android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -93,9 +94,10 @@
 
         <service
             android:name=".BackgroundService"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:label="BackgroundService">
-            <!--android:process=":BACKGROUND_SERVICE"-->
+            android:label="BackgroundService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
+            <!-- android:process=":BACKGROUND_SERVICE" -->
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
@@ -110,14 +112,16 @@
 
         <activity
             android:name=".MainActivity"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.nfc.action.TAG_DISCOVERED" />
+
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
@@ -130,7 +134,6 @@
 
                 <data android:mimeType="text/plain" />
             </intent-filter>
-
         </activity>
 
         <meta-data
@@ -141,8 +144,8 @@
             android:value="@string/facebook_client_token" />
 
         <provider
-            android:authorities="com.facebook.app.FacebookContentProvider2348325075257429"
             android:name="com.facebook.FacebookContentProvider"
+            android:authorities="com.facebook.app.FacebookContentProvider2348325075257429"
             android:exported="true" />
     </application>
 

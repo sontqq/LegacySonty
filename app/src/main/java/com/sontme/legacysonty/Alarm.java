@@ -42,9 +42,13 @@ public class Alarm extends BroadcastReceiver {
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 return;
             }
-            BackgroundService.locationManager.requestSingleUpdate(
-                    LocationManager.NETWORK_PROVIDER,
-                    BackgroundService.locationListener, null);
+            try {
+                BackgroundService.locationManager.requestSingleUpdate(
+                        LocationManager.NETWORK_PROVIDER,
+                        BackgroundService.locationListener, null);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         AlarmManager alarmMgr = (AlarmManager) context.getSystemService(ALARM_SERVICE);

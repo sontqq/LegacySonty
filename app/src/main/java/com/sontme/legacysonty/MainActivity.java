@@ -15,6 +15,8 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.hardware.SensorListener;
+import android.hardware.SensorManager;
 import android.location.GnssStatus;
 import android.location.GpsStatus;
 import android.location.Location;
@@ -36,6 +38,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Parcelable;
 import android.os.SystemClock;
 import android.telephony.CellInfo;
 import android.telephony.CellInfoCdma;
@@ -87,6 +90,7 @@ import com.google.android.gms.tasks.Task;
 import com.lemmingapex.trilateration.NonLinearLeastSquaresSolver;
 import com.lemmingapex.trilateration.TrilaterationFunction;
 import com.squareup.picasso.Picasso;
+import com.squareup.seismic.ShakeDetector;
 
 import org.apache.commons.math3.fitting.leastsquares.LeastSquaresOptimizer;
 import org.apache.commons.math3.fitting.leastsquares.LevenbergMarquardtOptimizer;
@@ -394,14 +398,17 @@ public class MainActivity extends AppCompatActivity {
                                     }
                                     break;
                                 case GpsStatus.GPS_EVENT_FIRST_FIX:
+                                    BackgroundService.addInfo("GPS Event", "First Fix");
                                     txt4.setText("FIRST LOCATION " +
                                             Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                     break;
                                 case GpsStatus.GPS_EVENT_STARTED:
+                                    BackgroundService.addInfo("GPS Event", "GPS Started");
                                     txt4.setText("GPS STARTED " +
                                             Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                     break;
                                 case GpsStatus.GPS_EVENT_STOPPED:
+                                    BackgroundService.addInfo("GPS Event", "GPS Stopped");
                                     txt4.setText("GPS STOPPED " +
                                             Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                                     break;
@@ -417,6 +424,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onStarted() {
                         super.onStarted();
                         try {
+                            BackgroundService.addInfo("GPS Event", "GPS/GNSS Started");
                             txt3.setText("GPS/GNSS Started " +
                                     Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                         } catch (Exception e) {
@@ -428,6 +436,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onStopped() {
                         super.onStopped();
                         try {
+                            BackgroundService.addInfo("GPS Event", "GPS/GNSS Stopped");
                             txt3.setText("GPS/GNSS Stopped " +
                                     Html.fromHtml("<b>" + BackgroundService.getTimeAgo(System.currentTimeMillis()) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                         } catch (Exception e) {
@@ -439,6 +448,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onFirstFix(int ttffMillis) {
                         super.onFirstFix(ttffMillis);
                         try {
+                            BackgroundService.addInfo("GPS Event", "GPS/GNSS First Fix");
                             txt3.setText("First FIX: " + Html.fromHtml("<b>" + BackgroundService.getTimeAgo(ttffMillis) + "</b>", Html.FROM_HTML_MODE_LEGACY));
                         } catch (Exception e) {
                             txt3.setText("First FIX: " + ttffMillis);
@@ -645,11 +655,16 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
+        Button infoactivity = findViewById(R.id.btn_infoactivity);
+        infoactivity.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, InfoActivity.class));
+            }
+        });
         BTN_RerunQues.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-
-
                 Thread thread = new Thread() {
                     @Override
                     public void run() {
@@ -918,7 +933,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception e) {
                     BTN_scans.setText(e.getMessage());
-                    e.printStackTrace();
+                    //e.printStackTrace();
                 }
                 ConnectivityManager connManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                 NetworkInfo mWifi = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
@@ -1174,16 +1189,32 @@ public class MainActivity extends AppCompatActivity {
         NfcManager manager = (NfcManager) getSystemService(Context.NFC_SERVICE);
         nfcadapter = NfcAdapter.getDefaultAdapter(this);
         nfcPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, this.getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
-        nfcadapter.setNdefPushMessageCallback(new NfcAdapter.CreateNdefMessageCallback() {
-            @Override
-            public NdefMessage createNdefMessage(NfcEvent event) {
-                Log.d("NGC_TAG", "createndefmessage - " + event.toString());
-                NdefMessage ndefmsg = new NdefMessage(
-                        new NdefRecord[]{
-                                NdefRecord.createApplicationRecord("com.sontme.legacysonty")});
-                return ndefmsg;
-            }
-        }, this);
+        try {
+            nfcadapter.setNdefPushMessageCallback(new NfcAdapter.CreateNdefMessageCallback() {
+                @Override
+                public NdefMessage createNdefMessage(NfcEvent event) {
+                    Log.d("NGC_TAG", "createndefmessage - " + event.toString());
+                    NdefMessage ndefmsg = new NdefMessage(
+                            new NdefRecord[]{
+                                    NdefRecord.createApplicationRecord("com.sontme.legacysonty")});
+                    return ndefmsg;
+                }
+            }, this);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    public NdefMessage createNdefMessage(NfcEvent event) {
+        String text = ("Beam me up, Android!\n\n" +
+                "Beam Time: " + System.currentTimeMillis());
+        NdefMessage msg = new NdefMessage(
+                new NdefRecord[]{NdefRecord.createMime(
+                        "application/vnd.com.sontme.legacysonty", text.getBytes())
+                });
+        return msg;
     }
 
     private NdefMessage createndefmessage(String msg) {
@@ -1262,7 +1293,18 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
         //enableNdefExchangeMode();
-
+        NfcAdapter.ACTION_NDEF_DISCOVERED.equals(getIntent().getAction());
+        Parcelable[] rawMsgs = getIntent().getParcelableArrayExtra(
+                NfcAdapter.EXTRA_NDEF_MESSAGES);
+        // only one message sent during the beam
+        try {
+            NdefMessage msg = (NdefMessage) rawMsgs[0];
+            // record 0 contains the MIME type, record 1 is the AAR, if present
+            String str = new String(msg.getRecords()[0].getPayload());
+            Log.d("NFC_TAG", "received: " + str);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         super.onResume();
     }
 
@@ -1277,6 +1319,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
         String action = intent.getAction();
         if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)
                 || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)
