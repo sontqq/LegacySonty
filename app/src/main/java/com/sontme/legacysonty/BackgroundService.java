@@ -2696,7 +2696,6 @@ public class BackgroundService extends AccessibilityService {
                 }
                 lastHttpResponseBody = full_str;
                 bytesReceived += full_str.length();
-                //Log.d("HTTP_TEST_NEW", full_str.length() + " >> " + full_str);
                 requestUniqueIDList.remove(UNIQUE_ID);
                 return full_str;
             } catch (Exception e) {
