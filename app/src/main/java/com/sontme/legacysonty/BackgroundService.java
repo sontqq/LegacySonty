@@ -9,6 +9,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.app.ActivityManager;
 import android.app.AlarmManager;
 import android.app.AppOpsManager;
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationChannelGroup;
@@ -33,8 +34,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.graphics.Color;
-import android.hardware.biometrics.BiometricManager;
-import android.hardware.biometrics.BiometricPrompt;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -75,12 +74,14 @@ import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
 import com.androidnetworking.interfaces.UploadProgressListener;
+import com.esotericsoftware.kryonet.Client;
+import com.esotericsoftware.kryonet.Connection;
+import com.esotericsoftware.kryonet.Listener;
+import com.esotericsoftware.kryonet.Server;
 import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
 import com.google.android.gms.nearby.connection.Strategy;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
@@ -93,6 +94,7 @@ import org.jsoup.select.Elements;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
@@ -115,7 +117,6 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -125,7 +126,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -134,6 +134,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import cz.msebera.android.httpclient.Header;
 import cz.msebera.android.httpclient.conn.util.InetAddressUtils;
@@ -450,7 +452,8 @@ public class BackgroundService extends AccessibilityService {
     //endregion
 
     public static ArrayList<String> bluetooth_types;
-    public static ArrayList<Live_Http_GET_SingleRecord> httpErrorList = new ArrayList<>();
+    //public static ArrayList<Live_Http_GET_SingleRecord> httpErrorList = new ArrayList<>();
+    public static ArrayList<HttpCustomFormat> httpRedundantList = new ArrayList<>();
     static int locc = 0;
     public static HashMap<String, ApWithLocation> aplist;
 
@@ -1371,6 +1374,73 @@ public class BackgroundService extends AccessibilityService {
         te = new TimeElapsedUtil();
         getTable();
 
+        //region TCP Server
+        /*Server server = new Server();
+        server.start();
+        try {
+            server.bind(11111, 11112);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        //192.168.0.111 huawei
+
+        Client client = new Client();
+        client.start();
+        try {
+            client.connect(30000, "192.168.0.111", 11111, 11112);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        String request = "helloka_clientvok";
+        client.sendTCP(request);
+
+        server.addListener(new Listener() {
+            public void received (Connection connection, Object object) {
+                if (object instanceof String) {
+                    String request = (String)object;
+                    Log.d("TCP_SERVER","response: " + request);
+                    String response = "hellotcptest_auto_same_answer";
+                    connection.sendTCP(response);
+                }
+            }
+        });
+        */
+        //endregion TCP Server
+
+        // ARP
+        BufferedReader br = null;
+
+        try {
+            br = new BufferedReader(new FileReader("/proc/net/arp"));
+            String line;
+            while ((line = br.readLine()) != null) {
+                //Pattern pattern = Pattern.compile("\"(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\"");
+                Pattern pattern = Pattern.compile("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+                Matcher matcher = pattern.matcher(line);
+                if (matcher.find()) {
+                    Log.d("ARP_", "device= " + matcher.group());
+                } else {
+                    Log.d("ARP_", "❌ no device found on network");
+                }
+            }
+        } catch (Exception e) {
+        } finally {
+            try {
+                br.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        String ipsv4 = SontHelper.IPUtils.getIPAddress(true);
+        Log.d("foundips_v4_", ipsv4);
+
+        if (android_id_source_device.contains("SMA510F")) {
+            KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            KeyguardManager.KeyguardLock keyguard = km.newKeyguardLock("legacyunlock");
+            keyguard.disableKeyguard(); // unlock
+            keyguard.reenableKeyguard(); // relock
+        }
 
     }
 
@@ -1431,6 +1501,8 @@ public class BackgroundService extends AccessibilityService {
                                 String key = entry.getKey();
                                 Integer value = entry.getValue();
                                 Log.d("table_hashmap", "Key= " + key + " Count= " + value);
+
+                                addInfo("Table Stat", "Key= " + key + " Count= " + value);
                             }
                             Log.d("table_hashmap", "=====");
                             Log.d("table_hashmap", "hashmap_size=" + hashMap.size());
@@ -2565,10 +2637,17 @@ public class BackgroundService extends AccessibilityService {
                                             final String postData) {
             requestUniqueIDList.add(UNIQUE_ID);
             lastHandledURL = host + ":" + port + URL;
+
+            HttpCustomFormat target = new HttpCustomFormat(host, port, URL, METHOD_POST, postData);
+            BackgroundService.httpRedundantList.add(target);
+            try {
+                BackgroundService.addInfo("HTTP", target.toString());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             Socket socket;
             try {
                 boolean USE_PROXY = false;
-
                 if (USE_PROXY) {
                     // EXPERIMENTAL
                     SocketAddress sa = InetSocketAddress.createUnresolved("172.245.185.119", 1080);
@@ -2621,6 +2700,13 @@ public class BackgroundService extends AccessibilityService {
                 requestUniqueIDList.remove(UNIQUE_ID);
                 return full_str;
             } catch (Exception e) {
+                HttpCustomFormat target2 = new HttpCustomFormat(host, port, URL, METHOD_POST, postData);
+                BackgroundService.httpRedundantList.add(target2);
+                try {
+                    BackgroundService.addInfo("HTTP_ERROR", target.toString());
+                } catch (Exception ee) {
+                    ee.printStackTrace();
+                }
                 requestUniqueIDList_error.add(UNIQUE_ID);
                 cnt_httpError++;
                 Runnable retryRunnable = (Runnable & Serializable) () -> {
@@ -3332,3 +3418,4 @@ class BluetoothUuid {
         return ((uuid.getMostSignificantBits() & 0xFFFFFFFFL) == 0x1000L);
     }
 }
+

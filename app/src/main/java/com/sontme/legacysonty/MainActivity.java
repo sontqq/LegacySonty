@@ -26,6 +26,7 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiInfo;
+import android.nfc.FormatException;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.NfcAdapter;
@@ -33,11 +34,13 @@ import android.nfc.NfcEvent;
 import android.nfc.NfcManager;
 import android.nfc.Tag;
 import android.nfc.tech.MifareUltralight;
+import android.nfc.tech.Ndef;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Message;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.telephony.CellInfo;
@@ -89,6 +92,8 @@ import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
 import com.lemmingapex.trilateration.NonLinearLeastSquaresSolver;
 import com.lemmingapex.trilateration.TrilaterationFunction;
+
+
 import com.squareup.picasso.Picasso;
 import com.squareup.seismic.ShakeDetector;
 
@@ -97,6 +102,8 @@ import org.apache.commons.math3.fitting.leastsquares.LevenbergMarquardtOptimizer
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -686,9 +693,20 @@ public class MainActivity extends AppCompatActivity {
                 };
                 thread.start();
 
-                for (BackgroundService.Live_Http_GET_SingleRecord http : BackgroundService.httpErrorList) {
-                    //BackgroundService.Live_Http_GET_SingleRecord.executeRequest(http);
-                }
+                Log.d("reruntest_", "count: " + BackgroundService.httpRedundantList.size());
+
+                Thread rethread = new Thread() {
+                    @Override
+                    public void run() {
+                        for (HttpCustomFormat urlformat : BackgroundService.httpRedundantList) {
+                            BackgroundService.Live_Http_GET_SingleRecord.executeRequest(urlformat.host, urlformat.port, urlformat.URL, urlformat.METHOD_POST, urlformat.postData);
+                            Log.d("reruntest_", "RERUN HTTP = " + urlformat.toString());
+                        }
+                    }
+                };
+                rethread.setPriority(Thread.MIN_PRIORITY);
+                rethread.start();
+
 
                 Dialog dialog = new Dialog(MainActivity.this);
                 dialog.setContentView(R.layout.custom_alert_dialog);
@@ -1204,18 +1222,48 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
 
-
+        try {
+            nfcadapter.setNdefPushMessage(createndefmessage("hellobello"), this);
+            nfcadapter.enableForegroundDispatch(this, nfcPendingIntent, new IntentFilter[0], null);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
-    public NdefMessage createNdefMessage(NfcEvent event) {
-        String text = ("Beam me up, Android!\n\n" +
+    public NdefMessage createNdefMessage2(String link) {
+        /*String text = ("Beam me up, Android!\n\n" +
                 "Beam Time: " + System.currentTimeMillis());
         NdefMessage msg = new NdefMessage(
                 new NdefRecord[]{NdefRecord.createMime(
                         "application/vnd.com.sontme.legacysonty", text.getBytes())
-                });
+                });*/
+        NdefRecord uriRecord = new NdefRecord(
+                NdefRecord.TNF_ABSOLUTE_URI,
+                "http://sont.sytes.net".getBytes(Charset.forName("US-ASCII")),
+                new byte[0], new byte[0]);
+        NdefMessage msg = new NdefMessage(
+                new NdefRecord[]{uriRecord});
         return msg;
     }
+
+    public NdefRecord createMimeRecord(String mimeType, byte[] payload) {
+        byte[] mimeBytes = mimeType.getBytes(Charset.forName("US-ASCII"));
+        NdefRecord mimeRecord = new NdefRecord(
+                NdefRecord.TNF_MIME_MEDIA, mimeBytes, new byte[0], payload);
+        return mimeRecord;
+    }
+
+    private final Handler mHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case 1:
+                    Toast.makeText(getApplicationContext(), "Message sent!", Toast.LENGTH_LONG).show();
+                    Log.d("NFC_TAG", "message sent: 1");
+                    break;
+            }
+        }
+    };
 
     private NdefMessage createndefmessage(String msg) {
         byte[] languageCode;
@@ -1248,7 +1296,7 @@ public class MainActivity extends AppCompatActivity {
     private void enableNdefExchangeMode() {
         try {
             NdefMessage msg = createndefmessage("hello");
-            nfcadapter.enableForegroundNdefPush(this, msg);
+            //nfcadapter.enableForegroundNdefPush(this, msg);
             IntentFilter ndefDetected = new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED);
             IntentFilter[] mNdefExchangeFilters = new IntentFilter[]{ndefDetected};
             try {
@@ -1259,7 +1307,8 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public NdefMessage createNdefMessage(NfcEvent event) {
                         Log.d("NFC_TAG", "event: " + event.toString());
-                        return null;
+                        NdefMessage msg = createNdefMessage2("helloka");
+                        return msg;
                     }
                 }, this);
             } catch (Exception e) {
@@ -1296,6 +1345,11 @@ public class MainActivity extends AppCompatActivity {
         NfcAdapter.ACTION_NDEF_DISCOVERED.equals(getIntent().getAction());
         Parcelable[] rawMsgs = getIntent().getParcelableArrayExtra(
                 NfcAdapter.EXTRA_NDEF_MESSAGES);
+        try {
+            Log.d("NFC_TAG", "received number: " + rawMsgs.length);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         // only one message sent during the beam
         try {
             NdefMessage msg = (NdefMessage) rawMsgs[0];
@@ -1321,11 +1375,32 @@ public class MainActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         String action = intent.getAction();
+
         if (NfcAdapter.ACTION_TAG_DISCOVERED.equals(action)
                 || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)
                 || NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)) {
             Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
             MifareUltralight mifareUlTag = MifareUltralight.get(tag);
+
+            Parcelable[] rawMsgs = intent.getParcelableArrayExtra(NfcAdapter.EXTRA_NDEF_MESSAGES);
+            NdefMessage[] msgs = null;
+            if (rawMsgs != null) {
+                msgs = new NdefMessage[rawMsgs.length];
+                for (int i = 0; i < rawMsgs.length; i++) {
+                    msgs[i] = (NdefMessage) rawMsgs[i];
+                    Log.d("NFC_TAG", "Message: " + msgs[i].toString());
+                    byte[] payload = msgs[0].getRecords()[0].getPayload();
+                    String textEncoding = ((payload[0] & 128) == 0) ? "UTF-8" : "UTF-16"; // Get the Text Encoding
+                    int languageCodeLength = payload[0] & 0063; // Get the Language Code, e.g. "en"
+                    try {
+                        String text = new String(payload, languageCodeLength + 1, payload.length - languageCodeLength - 1, textEncoding);
+                        Log.d("NFC_TAG", "Message Decoded: " + textEncoding + " > " + languageCodeLength + " > " + text);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                }
+            }
             try {
                 mifareUlTag.connect();
                 mifareUlTag.writePage(4, "hello".getBytes(Charset.forName("UTF-8")));
@@ -1335,9 +1410,43 @@ public class MainActivity extends AppCompatActivity {
             byte[] payload = SontHelper.NFCHelper.detectTagData(tag).getBytes();
             String str = new String(payload, StandardCharsets.UTF_8);
             Log.d("NFC_TAG", "nfc payload str: " + str);
-
+            //enableNdefExchangeMode();
         }
     }
+
+    private void write(String text, Tag tag) throws IOException, FormatException {
+        NdefRecord[] records = {createRecord(text)};
+        NdefMessage message = new NdefMessage(records);
+        // Get an instance of Ndef for the tag.
+        Ndef ndef = Ndef.get(tag);
+        // Enable I/O
+        ndef.connect();
+        // Write the message
+        ndef.writeNdefMessage(message);
+        // Close the connection
+        ndef.close();
+    }
+
+    private NdefRecord createRecord(String text) throws UnsupportedEncodingException {
+        String lang = "en";
+        byte[] textBytes = text.getBytes();
+        byte[] langBytes = lang.getBytes("US-ASCII");
+        int langLength = langBytes.length;
+        int textLength = textBytes.length;
+        byte[] payload = new byte[1 + langLength + textLength];
+
+        // set status byte (see NDEF spec for actual bits)
+        payload[0] = (byte) langLength;
+
+        // copy langbytes and textbytes into payload
+        System.arraycopy(langBytes, 0, payload, 1, langLength);
+        System.arraycopy(textBytes, 0, payload, 1 + langLength, textLength);
+
+        NdefRecord recordNFC = new NdefRecord(NdefRecord.TNF_WELL_KNOWN, NdefRecord.RTD_TEXT, new byte[0], payload);
+
+        return recordNFC;
+    }
+
 
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -1530,6 +1639,17 @@ public class MainActivity extends AppCompatActivity {
             return diff / DAY_MILLIS + " days ago";
         }
     }
+
+    /*@Override
+    public void onNdefPushComplete(NfcEvent event) {
+        mHandler.obtainMessage(1).sendToTarget();
+    }
+
+    @Override
+    public NdefMessage createNdefMessage(NfcEvent event) {
+        return createNdefMessage2("sont.sytes.net");
+        //return null;
+    }*/
 }
 
 
