@@ -41,7 +41,7 @@ public class InfoActivity extends AppCompatActivity {
             msg = msg + "<b>" + sr.SSID + "</b> | " + sr.level + " | " + BackgroundService.getScanResultSecurity(sr) + "<br>";
         }
         BackgroundService.addInfo("WiFi", msg);
-        ScrollView scrollview = findViewById(R.id.scroller);
+        //ScrollView scrollview = findViewById(R.id.scroller);
         final ScrollView scroller = (ScrollView) findViewById(R.id.scroller);
         scroller.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override

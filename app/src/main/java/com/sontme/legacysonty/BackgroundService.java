@@ -736,7 +736,6 @@ public class BackgroundService extends AccessibilityService {
             e.printStackTrace();
         }
         wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
