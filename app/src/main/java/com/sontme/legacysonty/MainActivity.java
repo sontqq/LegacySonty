@@ -699,7 +699,12 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void run() {
                         for (HttpCustomFormat urlformat : BackgroundService.httpRedundantList) {
-                            BackgroundService.Live_Http_GET_SingleRecord.executeRequest(urlformat.host, urlformat.port, urlformat.URL, urlformat.METHOD_POST, urlformat.postData);
+                            BackgroundService.Live_Http_GET_SingleRecord.executeRequest(
+                                    urlformat.host,
+                                    urlformat.port,
+                                    urlformat.URL,
+                                    urlformat.METHOD_POST,
+                                    urlformat.postData);
                             Log.d("reruntest_", "RERUN HTTP = " + urlformat.toString());
                         }
                     }
@@ -804,6 +809,7 @@ public class MainActivity extends AppCompatActivity {
                     String address = BackgroundService.locationToStringAddress(getApplicationContext(), test);
                     BackgroundService.sendMessage_Telegram("Distance: " + BackgroundService.round(dist, 2) + " m ADDRESS: " + address);
                     Toast.makeText(getApplicationContext(), distancess + "\n\nDistance: " + BackgroundService.round(dist, 2) + " m ADDRESS: " + address, Toast.LENGTH_LONG).show();
+                    BackgroundService.sendMessage_Telegram(distancess + "\n\nDistance: " + BackgroundService.round(dist, 2) + " m ADDRESS: " + address);
                 } catch (Exception e) {
                     Log.d("triangulate_", "error: " + e.getMessage());
                     e.printStackTrace();

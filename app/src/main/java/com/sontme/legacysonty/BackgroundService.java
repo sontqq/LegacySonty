@@ -15,6 +15,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationChannelGroup;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.appwidget.AppWidgetManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
@@ -26,6 +27,7 @@ import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -36,10 +38,14 @@ import android.content.pm.Signature;
 import android.graphics.Color;
 import android.location.Address;
 import android.location.Geocoder;
+import android.location.GnssStatus;
+import android.location.GpsStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.TrafficStats;
@@ -63,8 +69,11 @@ import android.text.format.Formatter;
 import android.util.Base64;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.RemoteViews;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -74,10 +83,6 @@ import com.androidnetworking.common.Priority;
 import com.androidnetworking.error.ANError;
 import com.androidnetworking.interfaces.StringRequestListener;
 import com.androidnetworking.interfaces.UploadProgressListener;
-import com.esotericsoftware.kryonet.Client;
-import com.esotericsoftware.kryonet.Connection;
-import com.esotericsoftware.kryonet.Listener;
-import com.esotericsoftware.kryonet.Server;
 import com.google.android.gms.analytics.GoogleAnalytics;
 import com.google.android.gms.analytics.HitBuilders;
 import com.google.android.gms.analytics.Tracker;
@@ -112,7 +117,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -127,7 +131,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.Set;
 import java.util.TimeZone;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -452,7 +458,7 @@ public class BackgroundService extends AccessibilityService {
     //endregion
 
     public static ArrayList<String> bluetooth_types;
-    //public static ArrayList<Live_Http_GET_SingleRecord> httpErrorList = new ArrayList<>();
+    //public static ArrayList<HttpCustomFormat> httpErrorList = new ArrayList<>();
     public static ArrayList<HttpCustomFormat> httpRedundantList = new ArrayList<>();
     static int locc = 0;
     public static HashMap<String, ApWithLocation> aplist;
@@ -474,10 +480,8 @@ public class BackgroundService extends AccessibilityService {
                         Base64.DEFAULT));
 
             }
-        } catch (PackageManager.NameNotFoundException e) {
-
-        } catch (NoSuchAlgorithmException e) {
-
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
         bluetooth_types = new ArrayList<>();
@@ -733,6 +737,115 @@ public class BackgroundService extends AccessibilityService {
         }
         wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.N) {
+                locationManager.addGpsStatusListener(new GpsStatus.Listener() {
+                    @Override
+                    public void onGpsStatusChanged(int event) {
+                        try {
+                            switch (event) {
+                                case GpsStatus.GPS_EVENT_SATELLITE_STATUS:
+                                    if (BackgroundService.CURRENT_LOCATION != null) {
+                                        if (ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                                                ActivityCompat.checkSelfPermission(getApplicationContext(),
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                        }
+                                        long lastUpdate;
+                                        String ago = "no info yet";
+                                        try {
+                                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER).getTime();
+                                            lastUpdate = BackgroundService.locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER).getTime();
+                                            ago = getTimeAgo(lastUpdate);
+                                            if (ago == null)
+                                                ago = getTimeAgo(System.currentTimeMillis());
+                                            if (ago == null)
+                                                ago = String.valueOf(System.currentTimeMillis());
+                                        } catch (Exception e) {
+                                            lastUpdate = BackgroundService.CURRENT_LOCATION.getTime();
+                                        }
+                                        if ((SystemClock.elapsedRealtime() - BackgroundService.CURRENT_LOCATION_LASTTIME)
+                                                < (10000)) {
+                                        } else {
+
+                                        }
+                                    }
+                                    break;
+                                case GpsStatus.GPS_EVENT_FIRST_FIX:
+                                    BackgroundService.addInfo("GPS Event", "First Fix");
+                                    break;
+                                case GpsStatus.GPS_EVENT_STARTED:
+                                    BackgroundService.addInfo("GPS Event", "GPS Started");
+                                    break;
+                                case GpsStatus.GPS_EVENT_STOPPED:
+                                    BackgroundService.addInfo("GPS Event", "GPS Stopped");
+                                    break;
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                });
+            } else {
+                locationManager.registerGnssStatusCallback(new GnssStatus.Callback() {
+                    @Override
+                    public void onStarted() {
+                        super.onStarted();
+                        try {
+                            BackgroundService.addInfo("GPS Event", "GPS/GNSS Started");
+                        } catch (Exception e) {
+
+                        }
+                    }
+
+                    @Override
+                    public void onStopped() {
+                        super.onStopped();
+                        try {
+                            BackgroundService.addInfo("GPS Event", "GPS/GNSS Stopped");
+                        } catch (Exception e) {
+
+                        }
+                    }
+
+                    @Override
+                    public void onFirstFix(int ttffMillis) {
+                        super.onFirstFix(ttffMillis);
+                        try {
+                            addInfo("GPS STATUS", "First FIX " + BackgroundService.getTimeAgo(ttffMillis));
+                        } catch (Exception e) {
+                        }
+                    }
+
+                    @Override
+                    public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
+                        super.onSatelliteStatusChanged(status);
+                        try {
+                            ArrayList<String> summed_constellation = new ArrayList<>();
+                            String summed_for_notif = "";
+                            for (int i = 0; i < status.getSatelliteCount(); i++) {
+                                String type = convertConstellation(status.getConstellationType(i));
+                                summed_constellation.add(type);
+                            }
+                            Set<String> uniqueSet = new HashSet<String>(
+                                    summed_constellation);
+                            TreeSet<String> orderedSet = new TreeSet(uniqueSet);
+                            orderedSet = (TreeSet) orderedSet.descendingSet();
+                            for (String s : orderedSet) {
+                                summed_for_notif += s + ": " + Collections.frequency(summed_constellation, s) + "\n";
+                            }
+
+                        } catch (Exception e) {
+                            addInfo("GPS STATUS", "No location data yet");
+                        }
+                    }
+                });
+            }
+        }
+
+
         locationListener = new LocationListener() {
             @Override
             public void onLocationChanged(final Location location) {
@@ -1107,12 +1220,16 @@ public class BackgroundService extends AccessibilityService {
                 public void run() {
                     sendMessage_Telegram(android_id_source_device +
                             " - is restarting service (30mins/2)");
-                    Intent mStartActivity = new Intent(context, BackgroundService.class);
-                    int mPendingIntentId = 123456;
-                    PendingIntent mPendingIntent = PendingIntent.getActivity(getApplicationContext(), mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT);
-                    AlarmManager mgr = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-                    mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent);
-                    //System.exit(0);
+                    try {
+                        Intent mStartActivity = new Intent(context, BackgroundService.class);
+                        int mPendingIntentId = 123456;
+                        PendingIntent mPendingIntent = PendingIntent.getActivity(getApplicationContext(), mPendingIntentId, mStartActivity, PendingIntent.FLAG_CANCEL_CURRENT);
+                        AlarmManager mgr = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+                        mgr.set(AlarmManager.RTC, System.currentTimeMillis() + 100, mPendingIntent);
+                        //System.exit(0);
+                    } catch (Exception er) {
+                        er.printStackTrace();
+                    }
                     try {
                         unregisterReceiver(wifiReceiver);
                         wifiReceiver = null;
@@ -1409,7 +1526,6 @@ public class BackgroundService extends AccessibilityService {
 
         // ARP
         BufferedReader br = null;
-
         try {
             br = new BufferedReader(new FileReader("/proc/net/arp"));
             String line;
@@ -1435,12 +1551,24 @@ public class BackgroundService extends AccessibilityService {
         String ipsv4 = SontHelper.IPUtils.getIPAddress(true);
         Log.d("foundips_v4_", ipsv4);
 
-        if (android_id_source_device.contains("SMA510F")) {
+        if (android_id_source_device.contains("SMA510F")) { // unlock
             KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
             KeyguardManager.KeyguardLock keyguard = km.newKeyguardLock("legacyunlock");
             keyguard.disableKeyguard(); // unlock
             keyguard.reenableKeyguard(); // relock
         }
+
+        /*final Handler handler2 = new Handler();
+        final int delay = 1000; // 1000 milliseconds == 1 second
+        handler2.postDelayed(new Runnable() {
+            public void run() {
+                Intent intent = new Intent();
+                intent.setAction("clicked");
+                sendBroadcast(intent);
+                handler2.postDelayed(this, delay);
+            }
+        }, delay);*/
+
 
     }
 
@@ -2011,7 +2139,10 @@ public class BackgroundService extends AccessibilityService {
                             .setBigContentTitle(text)
                             .setSummaryText(text))
                     .setSmallIcon(R.drawable.servicetransparenticon)
-                    .setContentTitle("Temp: " + batteryTemperature(getApplicationContext()) + "/" + cpuTemperature() + "\nData Usage: " + globalMobileRx_app + " / " + globalMobileTx_app + "\n" + roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) + " / " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent))
+                    .setContentTitle("Temp: " + batteryTemperature(getApplicationContext()) +
+                            "/" + cpuTemperature() +
+                            "\nData Usage: " + globalMobileRx_app + " / " + globalMobileTx_app + "\n" +
+                            roundBandwidth(Live_Http_GET_SingleRecord.bytesReceived) + " / " + roundBandwidth(Live_Http_GET_SingleRecord.bytesSent))
                     .setContentText(text)
                     .setSubText("" + System.currentTimeMillis() + " | " + getTimeAgo(System.currentTimeMillis()))
                     .setContentIntent(pi)
@@ -2082,6 +2213,31 @@ public class BackgroundService extends AccessibilityService {
         }
     }
 
+    public String convertConstellation(int i) {
+        switch (i) {
+            case 1:
+                return "GPS";
+            case 2:
+                return "SBAS";
+            case 3:
+                return "GLONASS";
+            case 4:
+                return "QZSS";
+            case 5:
+                return "BEIDOU";
+            case 6:
+                return "GALILEO";
+            case 7:
+                return "IRNSS";
+            case 8:
+                return "COUNT";
+            case 0:
+                return "0";
+            default:
+                return "Unknown";
+        }
+    }
+
     public void showOngoing2(Context ctx, String text) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             String NOTIFICATION_CHANNEL_ID_SERVICE = ctx.getPackageName();
@@ -2101,7 +2257,7 @@ public class BackgroundService extends AccessibilityService {
                             .setSummaryText(text))*/
                     //.setGroupSummary(true)
                     .setSmallIcon(R.drawable.gpssatellite)
-                    //.setNumber(999)
+                    .setNumber(Live_Http_GET_SingleRecord.cnt_httpError)
                     .setContentTitle(text)
                     .setContentText(text)
                     .setSubText("" + System.currentTimeMillis() + " | " + getTimeAgo(System.currentTimeMillis()))
@@ -2635,16 +2791,16 @@ public class BackgroundService extends AccessibilityService {
         public static String executeRequest(final String host, final int port, final String URL,
                                             final boolean METHOD_POST,
                                             final String postData) {
+
+            ToneGenerator toneGen1 = new ToneGenerator(
+                    AudioManager.STREAM_MUSIC, 100);
+            toneGen1.startTone(ToneGenerator.TONE_CDMA_PIP, 20);
+
             requestUniqueIDList.add(UNIQUE_ID);
             lastHandledURL = host + ":" + port + URL;
-
+            Log.d("HTTP_REQ_SENT", "URL > " + lastHandledURL);
             HttpCustomFormat target = new HttpCustomFormat(host, port, URL, METHOD_POST, postData);
             BackgroundService.httpRedundantList.add(target);
-            try {
-                BackgroundService.addInfo("HTTP", target.toString());
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
             Socket socket;
             try {
                 boolean USE_PROXY = false;
@@ -2691,12 +2847,21 @@ public class BackgroundService extends AccessibilityService {
                 String full_str = "";
                 String str = "";
 
-                while ((str = br.readLine()) != null) {
-                    full_str += str;
+                try {
+                    while ((str = br.readLine()) != null) {
+                        full_str += str;
+                    }
+                } catch (Exception eerr) {
+                    eerr.printStackTrace();
                 }
                 lastHttpResponseBody = full_str;
                 bytesReceived += full_str.length();
                 requestUniqueIDList.remove(UNIQUE_ID);
+                try {
+                    //BackgroundService.addInfo("HTTP SUCCESS", target.toString());
+                } catch (Exception er) {
+                    er.printStackTrace();
+                }
                 return full_str;
             } catch (Exception e) {
                 HttpCustomFormat target2 = new HttpCustomFormat(host, port, URL, METHOD_POST, postData);
@@ -2712,9 +2877,9 @@ public class BackgroundService extends AccessibilityService {
                     executeRequest(host, port, URL, METHOD_POST, postData);
                 };
                 webRequestExecutor.submit(retryRunnable);
-                //e.printStackTrace();
+                e.printStackTrace();
                 //BackgroundService.httpErrorList.add(this);
-                Log.d("Live_Http_GET_SingleRecord", "network error");
+                Log.d("Live_Http_GET_SingleRecord", "network error | " + e.getMessage());
                 return null;
             }
         }
@@ -2766,8 +2931,12 @@ public class BackgroundService extends AccessibilityService {
         protected void onPostExecute(String result) {
             super.onPostExecute(result);
             BackgroundService.updateCurrent(context, "HTTP", Live_Http_GET_SingleRecord.lastHandledURL);
-            for (RequestTaskListener hl : listeners) {
-                hl.update(result, URL);
+            try {
+                for (RequestTaskListener hl : listeners) {
+                    hl.update(result, URL);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
     }
